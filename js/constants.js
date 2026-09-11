@@ -4,9 +4,24 @@
 // filters, badges) without touching other files.
 // ============================================================================
 
-export const SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
+// Sizes are type-specific: shirts use letter sizes, pants use waist
+// numbers, accessories are usually one-size. Add/change values here and
+// it applies everywhere (product form, filters).
+export const SIZES_BY_TYPE = {
+  SHIRT: ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"],
+  PANTS: ["28", "29", "30", "31", "32", "34", "36"],
+  ACCESSORY: ["One Size"],
+};
 
-export const VARIANT_TYPES = ["SHIRT", "PANTS", "ACCESSORY"];
+export const VARIANT_TYPES = Object.keys(SIZES_BY_TYPE);
+
+// Every distinct size across all types — used for the top-level search
+// filter dropdown, which isn't tied to a single type.
+export const SIZES = [...new Set(Object.values(SIZES_BY_TYPE).flat())];
+
+export function sizesForType(type) {
+  return SIZES_BY_TYPE[type] || SIZES;
+}
 
 export const DEFAULT_CATEGORY_COLOR = "#6b7280";
 export const DEFAULT_TAG_COLOR = "#3b82f6";
