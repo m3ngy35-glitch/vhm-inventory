@@ -9,6 +9,7 @@ import { badge, toast, openGallery, escapeHtml } from "./ui-components.js";
 import { SIZES } from "./constants.js";
 import { openProductForm } from "./product-form.js";
 import { openCategoryTagManager } from "./category-tag-manager.js";
+import { watchAuth, login, logout } from "./auth.js";
 
 const state = {
   products: [],
@@ -185,17 +186,72 @@ function wireToolbar() {
   };
 }
 
-async function init() {
-  await loadMeta();
-  wireToolbar();
-  subscribeProducts(products => {
-    state.products = products;
-    rebuildIndex();
-    renderGrid();
-  });
+let unsubscribeProducts = null;
+
+async function startApp() {
+  document.getElementById("login-screen").hidden = true;
+  document.getElementById("app-shell").hidden = false;
+  try {
+    await loadMeta();
+    wireToolbar();
+    document.getElementById("btn-logout").onclick = async () => {
+      unsubscribeProducts?.();
+      await logout();
+    };
+    unsubscribeProducts = subscribeProducts(products => {
+      state.products = products;
+      rebuildIndex();
+      renderGrid();
+    });
+  } catch (err) {
+    console.error(err);
+    toast("Failed to load data — check Firestore rules & that Auth is enabled", "error");
+  }
 }
 
-init().catch(err => {
-  console.error(err);
-  toast("Failed to connect — check your Firebase config in js/firebase-config.js", "error");
+function showLogin() {
+  unsubscribeProducts?.();
+  document.getElementById("app-shell").hidden = true;
+  const loginScreen = document.getElementById("login-screen");
+  loginScreen.hidden = false;
+
+  const form = document.getElementById("login-form");
+  const errorEl = document.getElementById("login-error");
+  form.onsubmit = async e => {
+    e.preventDefault();
+    errorEl.hidden = true;
+    const email = document.getElementById("login-email").value.trim();
+    const password = document.getElementById("login-password").value;
+    const submitBtn = document.getElementById("login-submit");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Signing in...";
+    try {
+      await login(email, password);
+      // onAuthStateChanged (below) picks up the change and calls startApp()
+    } catch (err) {
+      errorEl.textContent = friendlyAuthError(err);
+      errorEl.hidden = false;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Sign In";
+    }
+  };
+}
+
+function friendlyAuthError(err) {
+  const code = err?.code || "";
+  if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) {
+    return "Wrong email or password.";
+  }
+  if (code.includes("too-many-requests")) {
+    return "Too many attempts — wait a moment and try again.";
+  }
+  if (code.includes("invalid-email")) {
+    return "That doesn't look like a valid email.";
+  }
+  return "Sign-in failed: " + (err?.message || "unknown error");
+}
+
+watchAuth(user => {
+  if (user) startApp();
+  else showLogin();
 });

@@ -193,6 +193,30 @@ input[type=text], input[type=number], textarea {
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 #toast.toast-error { background: var(--danger); }
 
+/* Login */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 20px;
+}
+.login-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 26px;
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.login-box h1 { margin: 0; font-size: 20px; }
+.login-box .muted { margin: -8px 0 4px; font-size: 13px; }
+.login-error { color: var(--danger); font-size: 13px; margin: 0; }
+
 @media (max-width: 640px) {
   .form-row { flex-direction: column; }
   #product-grid { grid-template-columns: 1fr 1fr; }

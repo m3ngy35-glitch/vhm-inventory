@@ -5,7 +5,7 @@
 // this file needs to change.
 // ============================================================================
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
   getFirestore, collection, doc, getDocs, getDoc, addDoc, setDoc,
   updateDoc, deleteDoc, query, orderBy, onSnapshot, writeBatch, serverTimestamp,
@@ -15,7 +15,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 import { firebaseConfig } from "./firebase-config.js";
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 export const dbFs = getFirestore(app);
 export const storage = getStorage(app);
 
