@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VHM Inventory</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<div class="topbar">
+  <h1>VHM Inventory</h1>
+  <input id="search-input" type="text" placeholder="Search master code, POS code, name, description, tags..." />
+  <select id="filter-category"></select>
+  <select id="filter-tag"></select>
+  <select id="filter-size"></select>
+  <div class="spacer"></div>
+  <button id="btn-manage-cattags" class="btn btn-secondary">Categories & Tags</button>
+  <button id="btn-new-product" class="btn btn-primary">+ New Product</button>
+</div>
+
+<main>
+  <div class="toolbar-row">
+    <span id="result-count" class="muted"></span>
+  </div>
+  <div id="product-grid"></div>
+</main>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
