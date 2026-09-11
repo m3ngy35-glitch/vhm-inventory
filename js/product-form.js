@@ -7,7 +7,7 @@
 import { saveProduct } from "./db.js";
 import { badge, toast } from "./ui-components.js";
 import { createImageUploader } from "./image-upload.js";
-import { SIZES, VARIANT_TYPES, } from "./constants.js";
+import { VARIANT_TYPES, sizesForType } from "./constants.js";
 import { generateVariants, renderVariantTable, readVariantTable } from "./variant-matrix.js";
 
 export function openProductForm({ product, categories, tags, onSaved }) {
@@ -75,7 +75,7 @@ export function openProductForm({ product, categories, tags, onSaved }) {
           </label>
           <label>Sizes
             <div id="f-sizes" class="checkbox-row">
-              ${SIZES.map(s => `<label><input type="checkbox" value="${s}" /> ${s}</label>`).join("")}
+              ${sizesForType("SHIRT").map(s => `<label><input type="checkbox" value="${s}" /> ${s}</label>`).join("")}
             </div>
           </label>
         </div>
@@ -103,6 +103,12 @@ export function openProductForm({ product, categories, tags, onSaved }) {
 
   overlay.querySelectorAll(".modal-close").forEach(btn => btn.onclick = () => overlay.remove());
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector("#f-vtype").onchange = () => {
+    const type = overlay.querySelector("#f-vtype").value;
+    const sizesBox = overlay.querySelector("#f-sizes");
+    sizesBox.innerHTML = sizesForType(type).map(s => `<label><input type="checkbox" value="${s}" /> ${s}</label>`).join("");
+  };
 
   overlay.querySelector("#f-generate").onclick = () => {
     const type = overlay.querySelector("#f-vtype").value;
