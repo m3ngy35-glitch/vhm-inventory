@@ -1,0 +1,416 @@
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --border: #e3e5e9;
+  --text: #1a1d23;
+  --muted: #6b7280;
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --danger: #dc2626;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans Khmer", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-wrap: wrap;
+}
+.topbar h1 { font-size: 18px; margin: 0; white-space: nowrap; }
+.topbar .spacer { flex: 1; }
+.products-toolbar { display: contents; }
+.nav-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.search-wrap { position: relative; flex: 1; min-width: 200px; display: flex; }
+#search-input {
+  flex: 1;
+  width: 100%;
+  padding: 9px 34px 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* 16px, not 14px: below 16px iOS Safari zooms the whole page in on
+     focus, and since nothing resets that zoom on blur/enter, the page
+     stays zoomed in until the user manually pinches back out. */
+  font-size: 16px;
+}
+.search-clear {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 20px; line-height: 1; padding: 6px 8px; border-radius: 50%;
+}
+.search-clear:hover { color: var(--text); }
+select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-secondary { background: #f1f2f4; }
+.btn-danger { color: var(--danger); border-color: #fca5a5; background: #fff; }
+.btn-icon {
+  border: none; background: transparent; cursor: pointer; font-size: 18px;
+  line-height: 1; color: var(--muted); padding: 4px 8px;
+}
+.btn-icon:hover { color: var(--text); }
+
+main { padding: 16px 20px 60px; max-width: 1400px; margin: 0 auto; }
+.toolbar-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+#result-count { color: var(--muted); font-size: 13px; margin-left: auto; }
+
+#product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.product-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.card-image {
+  aspect-ratio: 4/3;
+  background: #eee;
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+}
+.card-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.no-image { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); font-size: 13px; }
+.image-count {
+  position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,.6);
+  color: #fff; font-size: 11px; padding: 2px 7px; border-radius: 20px;
+}
+/* Sits right under the photo, above the rest of the card body — so where
+   the item actually is reads at a glance, the same way a tag does,
+   without opening the quick-edit table below. */
+.card-locations { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 14px 0; }
+.loc-chip { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 20px; border: 1px solid transparent; }
+.loc-chip-storage { background: #dcfce7; color: #14532d; border-color: #86efac; }
+.loc-chip-sample { background: #fef3c7; color: #78350f; border-color: #fcd34d; }
+.card-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.card-top-row { display: flex; justify-content: space-between; align-items: center; }
+.master-code { font-family: monospace; font-size: 12px; color: var(--muted); font-weight: 600; }
+.card-title { margin: 0; font-size: 15px; }
+.card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.card-stock { font-size: 12px; color: var(--muted); }
+.card-stock.stock-zero { color: var(--danger); font-weight: 600; }
+.card-actions { display: flex; gap: 8px; margin-top: 6px; }
+.card-actions .btn { flex: 1; }
+
+.badge {
+  display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 600;
+}
+mark { background: #fde68a; padding: 0 1px; border-radius: 2px; }
+.swatch {
+  display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px;
+  border: 1px solid rgba(0,0,0,.15); vertical-align: middle;
+}
+
+.variant-inline { font-size: 12px; }
+.variant-inline summary { cursor: pointer; color: var(--primary); margin: 4px 0; }
+.variant-inline-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.variant-inline-table th, .variant-inline-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+.variant-inline-table input { width: 100%; border: 1px solid var(--border); border-radius: 5px; padding: 3px 5px; font-size: 12px; }
+/* Location fields get their own bold, colored pill styling instead of a
+   plain small input — the whole point of showing these here is that
+   staff can read them at a glance, not squint at 12px table text. */
+.variant-inline-table input.loc-pill {
+  font-weight: 700; font-size: 13px; text-align: center; border-width: 1.5px;
+}
+.variant-inline-table input.loc-storage { background: #dcfce7; border-color: #16a34a; color: #14532d; }
+.variant-inline-table input.loc-storage::placeholder { color: #4d7c5f; font-weight: 400; }
+.variant-inline-table input.loc-sample { background: #fef3c7; border-color: #d97706; color: #78350f; }
+.variant-inline-table input.loc-sample::placeholder { color: #92702f; font-weight: 400; }
+
+.muted { color: var(--muted); }
+.card-description {
+  margin: 0; font-size: 13px; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 30px 16px; overflow-y: auto; z-index: 100;
+}
+.modal {
+  background: #fff; border-radius: var(--radius); width: 100%; max-width: 520px;
+  display: flex; flex-direction: column; max-height: calc(100vh - 60px);
+}
+.modal-lg { max-width: 860px; }
+.modal-sm { max-width: 360px; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.modal-header h2 { font-size: 16px; margin: 0; }
+.modal-body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.modal-footer { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; color: var(--text); }
+input[type=text], input[type=number], textarea {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 13px; font-family: inherit;
+}
+.form-row { display: flex; gap: 12px; }
+.form-row > label { flex: 1; }
+
+.tag-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag-checkbox { flex-direction: row; align-items: center; gap: 6px; font-weight: 400; }
+.checkbox-row { display: flex; flex-wrap: wrap; gap: 10px; font-weight: 400; font-size: 13px; }
+.checkbox-row label { flex-direction: row; align-items: center; gap: 4px; }
+
+.variant-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.variant-table th, .variant-table td { padding: 6px; border-bottom: 1px solid var(--border); text-align: left; }
+.variant-table input, .variant-table select { width: 100%; padding: 4px 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 5px; }
+
+.uploader-drop {
+  border: 2px dashed var(--border); border-radius: 8px; padding: 18px; text-align: center;
+  color: var(--muted); cursor: pointer; font-size: 13px;
+}
+.uploader-drop.drag-over { border-color: var(--primary); color: var(--primary); }
+.uploader-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.uploader-thumb { position: relative; width: 80px; height: 80px; border-radius: 6px; overflow: hidden; cursor: grab; }
+.uploader-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.thumb-remove { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 50%; width: 18px; height: 18px; cursor: pointer; font-size: 12px; line-height: 1; }
+.thumb-order { position: absolute; bottom: 2px; left: 2px; background: rgba(0,0,0,.6); color: #fff; font-size: 10px; padding: 0 4px; border-radius: 4px; }
+
+.chip-manager-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.chip-row { display: flex; align-items: center; gap: 4px; background: #f6f7f9; border-radius: 20px; padding: 2px 4px 2px 10px; }
+
+/* Gallery */
+.gallery-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+}
+.gallery-img { max-width: 90vw; max-height: 85vh; object-fit: contain; }
+.gallery-close { position: absolute; top: 16px; right: 24px; color: #fff; font-size: 32px; cursor: pointer; }
+.gallery-nav { position: absolute; top: 50%; transform: translateY(-50%); color: #fff; font-size: 40px; cursor: pointer; padding: 0 20px; user-select: none; }
+.gallery-prev { left: 0; }
+.gallery-next { right: 0; }
+.gallery-count { position: absolute; bottom: 20px; color: #fff; font-size: 13px; }
+
+/* Toast */
+#toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: #1a1d23; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px;
+  opacity: 0; pointer-events: none; transition: all .2s; z-index: 300;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.toast-error { background: var(--danger); }
+
+/* Live tab */
+.live-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.live-tab-btn {
+  padding: 10px 18px; border-radius: 8px; border: 1px solid var(--border);
+  background: #fff; cursor: pointer; font-size: 14px; font-weight: 600;
+}
+.live-tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.scan-box {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; display: flex; flex-direction: column; gap: 10px; max-width: 480px;
+}
+.scan-box input {
+  font-size: 20px; padding: 14px 16px; border: 2px solid var(--border); border-radius: 8px;
+}
+.scan-box input:focus { border-color: var(--primary); outline: none; }
+.scan-item-card {
+  display: flex; gap: 16px; background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; margin-top: 16px; max-width: 640px;
+}
+.scan-item-img { width: 110px; height: 110px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: #eee; }
+.scan-item-body { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.rec-card {
+  display: flex; gap: 10px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px; align-items: center;
+}
+.rec-card img, .rec-card .no-image { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: #eee; }
+.rec-body { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.rec-body strong { font-size: 13px; }
+.rotate-badge { background: #ef4444; color: #fff; align-self: flex-start; }
+.rec-card.rotate-due { border-color: #ef4444; background: #fef2f2; }
+.rec-card .btn-rotate-now { margin-top: 4px; align-self: flex-start; padding: 4px 10px; font-size: 12px; }
+#rotate-count-badge.rotate-count-due { color: #ef4444; font-weight: 800; }
+
+/* Login */
+.login-screen {
+  min-height: 100vh;
+  min-height: 100dvh; /* dvh tracks the mobile browser chrome (address bar) shrinking/growing; vh above is the fallback for browsers that don't support it */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 20px;
+}
+.login-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 26px;
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.login-box h1 { margin: 0; font-size: 20px; }
+.login-box .muted { margin: -8px 0 4px; font-size: 13px; }
+.login-error { color: var(--danger); font-size: 13px; margin: 0; }
+
+@media (max-width: 640px) {
+  .form-row { flex-direction: column; }
+  #product-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 400px) {
+  #product-grid { grid-template-columns: 1fr; } /* two columns gets too cramped below ~400px */
+}
+
+/* ============================================================
+   Mobile (< 768px): filter drawer, full-screen modals, sticky
+   footers, table -> stacked-card conversion, 44px touch targets.
+   Desktop layout/behavior above is untouched by everything below.
+   ============================================================ */
+.filters-toggle { display: none; }
+.filters-panel-header, .filters-apply { display: none; }
+.category-pills { display: none; }
+.filters-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 140; }
+.filters-backdrop[hidden] { display: none; }
+.pill-btn {
+  border: 1px solid var(--border); background: #fff; border-radius: 20px;
+  padding: 8px 14px; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer;
+}
+.pill-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+@media (max-width: 768px) {
+  /* ---- Touch targets: at least 44x44px on every interactive control ---- */
+  .btn, .nav-btn, .live-tab-btn { min-height: 44px; }
+  .btn-icon {
+    min-width: 44px; min-height: 44px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  input[type=text], input[type=number], input[type=email], input[type=password],
+  input[type=color], textarea, select {
+    min-height: 44px;
+    font-size: 16px; /* keeps iOS Safari from auto-zooming the page on focus */
+  }
+  .tag-checkbox, .checkbox-row label {
+    min-height: 44px; padding: 6px 12px; border: 1px solid var(--border);
+    border-radius: 20px; background: #fff; touch-action: manipulation;
+  }
+  .tag-picker { gap: 10px 8px; }
+
+  /* ---- Fix mis-taps on scrollable content inside a modal ----
+     .modal-overlay and .modal-body were both overflow-y:auto at once.
+     On mobile the full-screen modal already fills the overlay, so the
+     outer scroller had nothing real to scroll but could still catch
+     the tail end of a touch/momentum-scroll gesture, which shifted
+     the layout a moment after the finger landed and made the tap
+     register on whatever ended up underneath (e.g. the tag below the
+     one actually tapped). Giving the modal body the only scroll
+     container, with containment so its scroll can't bleed into the
+     overlay behind it, fixes that. */
+  .modal-overlay { overflow: hidden; }
+  .modal-body { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+
+  /* ---- Mobile-first search & filtering ---- */
+  .filters-toggle { display: inline-flex; }
+  .category-pills {
+    display: flex; gap: 8px; overflow-x: auto; padding: 10px 0 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+  #filters-panel {
+    display: flex; flex-direction: column; gap: 12px;
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: #fff; padding: 18px;
+    padding-bottom: max(18px, env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0; box-shadow: 0 -6px 24px rgba(0,0,0,.18);
+    transform: translateY(110%); transition: transform .25s ease;
+    z-index: 150; max-height: 75dvh; overflow-y: auto;
+  }
+  #filters-panel.open { transform: translateY(0); }
+  #filters-panel select { width: 100%; }
+  .filters-panel-header { display: flex; justify-content: space-between; align-items: center; }
+  .filters-apply { display: block; width: 100%; }
+
+  /* ---- "+ New Product" as a pinned bottom action — the one button
+     staff reach for constantly shouldn't require scrolling back up to
+     the topbar to find. ---- */
+  #btn-new-product {
+    position: fixed; right: 16px; bottom: 16px;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    z-index: 120; border-radius: 30px; padding: 12px 22px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.28);
+  }
+
+  /* ---- Responsive modals: full-screen sheet instead of a small
+     centered box that breaks the screen's edges ---- */
+  .modal-overlay { padding: 0; align-items: stretch; }
+  .modal-overlay .modal:not(.modal-sm) {
+    max-width: 100%; width: 100%;
+    height: 100vh; height: 100dvh;
+    max-height: 100vh; max-height: 100dvh;
+    border-radius: 0;
+  }
+  .modal-footer {
+    position: sticky; bottom: 0; background: #fff;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .modal-footer .btn { flex: 1; }
+
+  /* ---- Wide data tables -> stacked cards ---- */
+  .variant-table, .variant-inline-table { border: 0; }
+  .variant-table thead, .variant-inline-table thead { display: none; }
+  .variant-table tbody, .variant-inline-table tbody { display: flex; flex-direction: column; gap: 10px; }
+  .variant-table tr, .variant-inline-table tr {
+    display: flex; flex-direction: column; gap: 2px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+  }
+  .variant-table td, .variant-inline-table td {
+    display: flex; align-items: center; gap: 8px; border-bottom: none; padding: 5px 0;
+  }
+  .variant-table td::before, .variant-inline-table td::before {
+    content: attr(data-label); flex: 0 0 84px;
+    font-weight: 700; color: var(--muted); font-size: 11px; text-transform: uppercase;
+  }
+  .variant-table td.v-remove-cell { padding-top: 8px; }
+  .variant-table td.v-remove-cell::before { content: none; }
+  .variant-table td.v-remove-cell .v-remove {
+    width: 100%; min-height: 40px; border: 1px solid var(--border); border-radius: 6px;
+  }
+
+  /* ---- Live tab: stack the scan-result card and recommendation grid
+     instead of squeezing a thumbnail + text into one cramped row ---- */
+  .scan-item-card { flex-direction: column; }
+  .scan-item-img { width: 100%; height: 200px; }
+  .rec-grid { grid-template-columns: 1fr; }
+}
