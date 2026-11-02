@@ -27,6 +27,7 @@ responsibility so one part can change without risking another:
 | `js/category-tag-manager.js` | Manage categories & tags (name + color badge) |
 | `js/ui-components.js` | Color badges, toasts, the full-screen photo gallery |
 | `js/app.js` | Main page: search bar, filters, product grid, inline quick-edit |
+| `js/stock-map.js` | 🔌 Reads the PokPok ↔ Vrich map from VHM Scan Verify (its project, read-only) so PokPok labels work |
 | `js/locations-tab.js` | 📍 Locations tab: scan a product, then a location barcode → saves its storage or sample location |
 
 If you want to add a feature later, you almost always only touch one file.
@@ -89,9 +90,10 @@ is actually being used day to day and hits a real limit.
 
 1. Choose **📦 Storage location** or **👕 Sample location** at the top.
 2. Scan the product: its master code (E366), a POS / alternate code, or a
-   PokPok label (P0003955). PokPok labels need the map file from VHM Scan
-   Verify (upload page → 🗺 PokPok ↔ Vrich map → "Map file for Stock
-   Count"); open it once at the bottom of the tab and the device keeps it.
+   PokPok label (P0003955). PokPok labels use the PokPok ↔ Vrich map, which
+   loads by itself from VHM Scan Verify (the source — its upload page
+   publishes it after every PokPok / Vrich upload). A map file can still be
+   opened by hand at the bottom of the tab when there is no internet.
 3. Scan the location barcode (A1). It is saved on the product's
    `storage_location` / `sample_location` (replacing the old one) — the same
    fields the product card and the Edit Product form show.
@@ -114,3 +116,15 @@ is actually being used day to day and hits a real limit.
   keep it that way in any new write, or other devices won't see the change
   until the weekly full read.
 - **📍 Locations tab:** no reads of its own — 1 write per save.
+
+## 🔌 Connection to VHM Scan Verify (the source)
+
+VHM Scan Verify's upload page publishes the PokPok ↔ Vrich map to its own
+Firebase project (vhm-menu: `sv2_meta/stockmap` + `sv2_catalog/map_*`)
+whenever the PokPok list, the Vrich stock list, the 🔗 links or "Same words"
+change. `js/stock-map.js` reads it with an anonymous, read-only sign-in on
+vhm-menu (the same access the packing phones use), in a separate Firebase app
+— it never touches vhm-data's login or data. Cost: 1 read when the tab is
+opened (version check), 1–2 more only when the map changed; the map is kept on
+the device. An unknown label triggers one extra check, so a brand-new code
+works as soon as the manager has uploaded the lists.

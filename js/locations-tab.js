@@ -2,9 +2,10 @@
 // locations-tab.js — set a product's Storage or Sample location by scanning.
 //
 // Step 1: scan the product — its master code (E366), a POS / alternate code
-//   on one of its variants, or a PokPok label (P0003955) when the map file
-//   from VHM Scan Verify is loaded (🗺 PokPok ↔ Vrich map → "Map file for
-//   Stock Count"; the map turns the label into its product code).
+//   on one of its variants, or a PokPok label (P0003955) — the PokPok ↔ Vrich
+//   map from VHM Scan Verify turns the label into its product code. The map
+//   loads by itself from VHM Scan (see stock-map.js: 1 read per open, the
+//   map only when it changed); a map file can still be opened by hand.
 // Step 2: scan the location barcode (A1). It is saved on the product as
 //   storage_location or sample_location — the same fields the product card
 //   and the Edit Product form show — replacing the old value.
@@ -16,13 +17,15 @@
 // Firestore cost: ONE write per save (patchProduct) and one per undo — nothing else.
 // This tab opens no Firestore listener and does no reads of its own: it uses the
 // product list app.js already keeps live for the Products tab (passed in as
-// getProducts / onProducts). The map file is read from this device only.
+// getProducts / onProducts). The map comes from VHM Scan's project (vhm-menu),
+// not this one — see stock-map.js.
 // ============================================================================
 
 import { patchProduct } from "./db.js";
 import { findVariantByCode } from "./search.js";
 import { toast, escapeHtml } from "./ui-components.js";
 import { STORAGE_LOCATIONS, SAMPLE_LOCATIONS } from "./constants.js";
+import { loadStockMap, useMapFile, currentStockMap, onStockMap, codesForNumber } from "./stock-map.js";
 
 const norm = s => (s || "").toString().replace(/[​⁠﻿­]/g, "").trim().toUpperCase();
 // A storage bin code: one or two letters + 1–3 digits (A1, B12, AA3)
@@ -31,13 +34,6 @@ const FIELD = { storage: "storage_location", sample: "sample_location" };
 const LS_KEY = "vhminv_loc_";
 const lsGet = (k, d) => { try { const v = localStorage.getItem(LS_KEY + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(LS_KEY + k, JSON.stringify(v)); } catch (e) {} };
-
-// ---- tiny IndexedDB store for the map file (it is a few MB — too big for localStorage) ----
-const idb = {
-  open() { return new Promise((res, rej) => { const r = indexedDB.open("vhminv_loc", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
-  async get(k) { try { const d = await this.open(); return await new Promise(res => { const q = d.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(undefined); }); } catch (e) { return undefined; } },
-  async set(k, v) { try { const d = await this.open(); return await new Promise(res => { const t = d.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = () => res(true); t.onerror = () => res(false); }); } catch (e) { return false; } },
-};
 
 // ---- beeps (a barcode scanner user should not need to look at the screen) ----
 let actx = null;
@@ -55,8 +51,6 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
     pending: null,                   // product waiting for its location
     pick: null,                      // { code, products } when one label means several products
     log: [],                         // this session: { product, field, from, to, t }
-    map: null,                       // PokPok number -> [sale codes]
-    mapInfo: null,
   };
 
   container.innerHTML = `
@@ -100,27 +94,21 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
   useProducts(getProducts());
   const unsubscribe = onProducts(useProducts);
 
-  idb.get("map").then(m => { if (m) adoptMap(m); renderMapInfo(); });
-
-  // ---------------- map file (optional: lets PokPok labels be scanned) ----------------
-  function adoptMap(m) {
-    const map = new Map(), add = (k, sale) => { k = norm(k); if (!k || !sale) return; const a = map.get(k) || map.set(k, []).get(k); if (!a.includes(sale)) a.push(sale); };
-    (m.items || []).forEach(it => { const sale = norm(it[7]); add(it[0], sale); add(it[1], sale); if (it[6]) add(it[6], sale); });
-    state.map = map; state.mapInfo = { at: m.at, count: (m.items || []).length };
-  }
+  // ---------------- PokPok ↔ Vrich map (from VHM Scan; a file only as a fallback) ----------------
+  const stopMap = onStockMap(() => renderMapInfo());
+  loadStockMap().then(renderMapInfo);
   function renderMapInfo() {
-    const el = $("#loc-map");
-    el.innerHTML = (state.mapInfo
-      ? `🗺 PokPok labels: map from ${escapeHtml(String(state.mapInfo.at).slice(0, 16).replace("T", " "))} (${state.mapInfo.count.toLocaleString()} items) · `
-      : `🗺 To scan PokPok labels (P000…), open the map file from VHM Scan Verify · ដើម្បីស្កេនស្លាក PokPok សូមបើកឯកសារផែនទី · `) +
-      `<label class="loc-mapbtn">${state.mapInfo ? "Change map file" : "Open map file"}<input type="file" accept=".json,application/json" hidden id="loc-mapfile" /></label>`;
+    const el = $("#loc-map"), m = currentStockMap();
+    el.innerHTML = (m
+      ? `🗺 PokPok labels: ${m.source === "online" ? "map from VHM Scan" : "map file"} · ${escapeHtml(String(m.at).slice(0, 16).replace("T", " "))} · ${m.count.toLocaleString()} items · `
+      : `🗺 PokPok labels: the map from VHM Scan could not be loaded yet — check the internet, or open the map file · ផែនទីមិនទាន់បានផ្ទុក · `) +
+      `<a href="#" class="loc-mapbtn" id="loc-maprefresh">Check now</a> · ` +
+      `<label class="loc-mapbtn">Open map file<input type="file" accept=".json,application/json" hidden id="loc-mapfile" /></label>`;
+    el.querySelector("#loc-maprefresh").onclick = async e => { e.preventDefault(); await loadStockMap(true); renderMapInfo(); toast(currentStockMap() ? "Map is up to date" : "Could not reach VHM Scan", currentStockMap() ? "info" : "error"); input.focus(); };
     el.querySelector("#loc-mapfile").onchange = async e => {
       const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-      try {
-        const m = JSON.parse(await f.text());
-        if (!m || m.schema !== "vhm-stock-map" || !Array.isArray(m.items)) throw new Error("This is not the VHM map file");
-        adoptMap(m); await idb.set("map", m); renderMapInfo(); toast("Map file loaded");
-      } catch (err) { toast(err.message, "error"); }
+      try { await useMapFile(JSON.parse(await f.text())); renderMapInfo(); toast("Map file loaded"); }
+      catch (err) { toast(err.message, "error"); }
       input.focus();
     };
   }
@@ -134,9 +122,7 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
     if (m) return [m];
     const v = findVariantByCode(state.products, code);
     if (v) return [v.product];
-    const sales = state.map && state.map.get(code);
-    if (sales) return sales.map(s => state.byMaster.get(s)).filter(Boolean);
-    return [];
+    return codesForNumber(code).map(s => state.byMaster.get(s)).filter(Boolean);
   }
   const looksLikeLocation = code => {
     const c = norm(code);
@@ -145,11 +131,17 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
   // storage bins are saved in capitals (a1 → A1); sample spots are saved as scanned/typed
   const cleanLoc = raw => { const t = (raw || "").toString().replace(/[​⁠﻿­]/g, "").trim(); return state.mode === "storage" || BIN_RE.test(norm(t)) ? norm(t) : t; };
 
-  function handleScan(raw) {
+  async function handleScan(raw, retried) {
     const code = (raw || "").trim();
     if (!code) return;
     state.pick = null;
     const prods = findProducts(code);
+    // an unknown label (not a location) may be a brand-new PokPok item: check VHM Scan for a newer map once, then try again
+    if (!prods.length && !retried && !(state.pending && looksLikeLocation(code)) && !looksLikeLocation(code) && !state.byMaster.has(norm(code))) {
+      const before = currentStockMap() && currentStockMap().ver;
+      await loadStockMap(true);
+      if (currentStockMap() && currentStockMap().ver !== before) return handleScan(raw, true);
+    }
 
     // waiting for a location: a location wins, unless this is clearly another product (then switch to it)
     if (state.pending) {
@@ -160,7 +152,12 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
         if (state.lock) { state.lockedLoc = cleanLoc(code); beepStep(); renderAll(); return; }
         showError(`Scan the product first, then the location · ស្កេនទំនិញជាមុនសិន បន្ទាប់មកទីតាំង`); return;
       }
-      showError(`"${escapeHtml(code)}" is not in VHM Inventory · មិនមានក្នុង VHM Inventory` + (state.map ? "" : "<br><span class='muted'>A PokPok label? Open the map file below.</span>")); return;
+      const known = codesForNumber(code);
+      showError(known.length && known.every(k => !/[A-Z0-9]/.test(k))
+        ? `Label ${escapeHtml(code)}: its PokPok name does not start with a product code ("${known.map(escapeHtml).join(", ")}") — PokPok person: put the code first in the name · ឈ្មោះ PokPok មិនចាប់ផ្តើមដោយកូដទំនិញ`
+        : known.length
+        ? `Label ${escapeHtml(code)} is <b>${known.map(escapeHtml).join(", ")}</b>, but that code is not in VHM Inventory yet — add the product first · បន្ថែមទំនិញក្នុង VHM Inventory ជាមុនសិន`
+        : `"${escapeHtml(code)}" is not in VHM Inventory · មិនមានក្នុង VHM Inventory` + (currentStockMap() ? "" : "<br><span class='muted'>A PokPok label? The map from VHM Scan is not loaded — see below.</span>")); return;
     }
     if (prods.length > 1) { state.pick = { code, products: prods }; beepStep(); buzz([60, 40, 60]); renderAll(); return; }
     gotProduct(prods[0]);
@@ -280,5 +277,5 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
 
   renderAll(); renderMapInfo();
   setTimeout(() => input.focus(), 0);
-  return () => unsubscribe();
+  return () => { unsubscribe(); stopMap(); };
 }
