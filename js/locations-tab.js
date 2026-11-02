@@ -6,9 +6,11 @@
 //   map from VHM Scan Verify turns the label into its product code. The map
 //   loads by itself from VHM Scan (see stock-map.js: 1 read per open, the
 //   map only when it changed); a map file can still be opened by hand.
-// Step 2: scan the location barcode (A1). It is saved on the product as
-//   storage_location or sample_location — the same fields the product card
-//   and the Edit Product form show — replacing the old value.
+// Step 2: scan the location barcode (B23). It is saved in the same field the
+//   product card and the Edit Product form show for that location (which stored
+//   field holds what: LOCATION_FIELDS in constants.js). If the code already has a
+//   DIFFERENT location there, staff are asked first — nothing is replaced
+//   without "Replace" being tapped, so a saved location is never lost by a scan.
 //
 // 📌 Same location for the next items: after one location is scanned, every
 // next product scan is saved straight to that location (filling one shelf).
@@ -24,13 +26,13 @@
 import { patchProduct } from "./db.js";
 import { findVariantByCode } from "./search.js";
 import { toast, escapeHtml } from "./ui-components.js";
-import { STORAGE_LOCATIONS, SAMPLE_LOCATIONS } from "./constants.js";
-import { loadStockMap, useMapFile, currentStockMap, onStockMap, codesForNumber } from "./stock-map.js";
+import { STORAGE_LOCATIONS, SAMPLE_LOCATIONS, LOCATION_FIELDS } from "./constants.js";
+import { loadStockMap, useMapFile, currentStockMap, onStockMap, codesForNumber, stockMapError } from "./stock-map.js";
 
 const norm = s => (s || "").toString().replace(/[​⁠﻿­]/g, "").trim().toUpperCase();
 // A storage bin code: one or two letters + 1–3 digits (A1, B12, AA3)
 const BIN_RE = /^[A-Z]{1,2}-?\d{1,3}$/;
-const FIELD = { storage: "storage_location", sample: "sample_location" };
+const FIELD = { storage: LOCATION_FIELDS.stock, sample: LOCATION_FIELDS.sample };   // scan mode -> stored field
 const LS_KEY = "vhminv_loc_";
 const lsGet = (k, d) => { try { const v = localStorage.getItem(LS_KEY + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(LS_KEY + k, JSON.stringify(v)); } catch (e) {} };
@@ -50,6 +52,7 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
     lockedLoc: "",                   // the location the lock is holding
     pending: null,                   // product waiting for its location
     pick: null,                      // { code, products } when one label means several products
+    confirm: null,                   // { product, loc, from } waiting for "Replace" / "Keep"
     log: [],                         // this session: { product, field, from, to, t }
   };
 
@@ -80,7 +83,7 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
   });
   $("#loc-lock").checked = state.lock;
   $("#loc-lock").onchange = e => { state.lock = e.target.checked; lsSet("lock", state.lock); if (!state.lock) state.lockedLoc = ""; renderStep(); input.focus(); };
-  $("#loc-cancel").onclick = () => { state.pending = null; state.pick = null; state.lockedLoc = ""; renderAll(); input.focus(); };
+  $("#loc-cancel").onclick = () => { state.pending = null; state.pick = null; state.confirm = null; state.lockedLoc = ""; renderAll(); input.focus(); };
   $("#loc-labels").onclick = printLabels;
   input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); const v = input.value; input.value = ""; handleScan(v); } });
 
@@ -98,13 +101,14 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
   const stopMap = onStockMap(() => renderMapInfo());
   loadStockMap().then(renderMapInfo);
   function renderMapInfo() {
-    const el = $("#loc-map"), m = currentStockMap();
+    const el = $("#loc-map"), m = currentStockMap(), err = stockMapError();
     el.innerHTML = (m
       ? `🗺 PokPok labels: ${m.source === "online" ? "map from VHM Scan" : "map file"} · ${escapeHtml(String(m.at).slice(0, 16).replace("T", " "))} · ${m.count.toLocaleString()} items · `
-      : `🗺 PokPok labels: the map from VHM Scan could not be loaded yet — check the internet, or open the map file · ផែនទីមិនទាន់បានផ្ទុក · `) +
+      : `🗺 PokPok labels: no map yet · ផែនទីមិនទាន់មាន · `) +
+      (err ? `<div class="loc-msg loc-${m ? "warn" : "bad"}" style="margin:6px 0">⚠ ${m ? "Using the copy on this device — " : ""}${escapeHtml(err.text)}</div>` : "") +
       `<a href="#" class="loc-mapbtn" id="loc-maprefresh">Check now</a> · ` +
       `<label class="loc-mapbtn">Open map file<input type="file" accept=".json,application/json" hidden id="loc-mapfile" /></label>`;
-    el.querySelector("#loc-maprefresh").onclick = async e => { e.preventDefault(); await loadStockMap(true); renderMapInfo(); toast(currentStockMap() ? "Map is up to date" : "Could not reach VHM Scan", currentStockMap() ? "info" : "error"); input.focus(); };
+    el.querySelector("#loc-maprefresh").onclick = async e => { e.preventDefault(); await loadStockMap(true); renderMapInfo(); const er = stockMapError(); toast(er ? "Map not updated — see the message below the scan box" : "Map is up to date", er ? "error" : "info"); input.focus(); };
     el.querySelector("#loc-mapfile").onchange = async e => {
       const f = e.target.files[0]; e.target.value = ""; if (!f) return;
       try { await useMapFile(JSON.parse(await f.text())); renderMapInfo(); toast("Map file loaded"); }
@@ -135,6 +139,7 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
     const code = (raw || "").trim();
     if (!code) return;
     state.pick = null;
+    if (state.confirm) { keepOld(true); }              // a new scan while "replace?" is open = keep the saved location
     const prods = findProducts(code);
     // an unknown label (not a location) may be a brand-new PokPok item: check VHM Scan for a newer map once, then try again
     if (!prods.length && !retried && !(state.pending && looksLikeLocation(code)) && !looksLikeLocation(code) && !state.byMaster.has(norm(code))) {
@@ -167,12 +172,14 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
     state.pending = p; beepStep(); buzz(25); renderAll();
   }
 
-  async function save(product, loc) {
+  async function save(product, loc, confirmed) {
     if (!loc) return;
     const field = FIELD[state.mode], from = product[field] || "";
     state.pending = null;
     if (state.lock) state.lockedLoc = loc;
     if (norm(from) === norm(loc)) { beepSaved(); state.log.unshift({ product, field, from, to: loc, t: new Date(), same: true }); renderAll(); return; }
+    // a location is already saved: never replace it without asking
+    if (from && !confirmed) { state.confirm = { product, loc, from, field }; beepStep(); buzz([60, 40, 60]); renderAll(); return; }
     try {
       await patchProduct(product.id, { [field]: loc });
       state.log.unshift({ product, field, from, to: loc, t: new Date() });
@@ -186,6 +193,12 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
     renderAll();
   }
 
+  function keepOld(silent) {
+    const c = state.confirm; if (!c) return;
+    state.confirm = null;
+    state.log.unshift({ product: c.product, field: c.field, from: c.from, to: c.from, t: new Date(), same: true, kept: c.loc });
+    if (!silent) { toast(`${c.product.master_code}: kept ${c.from}`); renderAll(); input.focus(); }
+  }
   function showError(html) {
     beepBad(); buzz([200, 80, 200]);
     $("#loc-result").innerHTML = `<div class="loc-msg loc-bad">✗ ${html}</div>`;
@@ -200,7 +213,8 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
   function renderStep() {
     const where = state.mode === "storage" ? "storage location · ទីតាំងស្តុក" : "sample location · ទីតាំងគំរូ";
     let html;
-    if (state.pending) html = `<b>Step 2 · ជំហានទី 2</b> — scan the ${where} for <b>${escapeHtml(state.pending.master_code)}</b>`;
+    if (state.confirm) html = `Replace or keep? Tap a button below · ប្តូរ ឬទុកដដែល?`;
+    else if (state.pending) html = `<b>Step 2 · ជំហានទី 2</b> — scan the ${where} for <b>${escapeHtml(state.pending.master_code)}</b>`;
     else if (state.lock && state.lockedLoc) html = `📌 Filling <b class="loc-big">${escapeHtml(state.lockedLoc)}</b> — scan each product to put it here · ស្កេនទំនិញនីមួយៗ ដើម្បីដាក់នៅទីនេះ`;
     else html = `<b>Step 1 · ជំហានទី 1</b> — scan the product (code, POS code or PokPok label) · ស្កេនទំនិញ`;
     $("#loc-step").innerHTML = html;
@@ -213,8 +227,8 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
       <div class="scan-item-body">
         <div><span class="master-code">${escapeHtml(p.master_code)}</span> — ${escapeHtml(p.name || "")}</div>
         <div class="card-locations">
-          <span class="loc-chip loc-chip-storage" title="Storage location">📦 ${p.storage_location ? escapeHtml(p.storage_location) : "—"}</span>
-          <span class="loc-chip loc-chip-sample" title="Sample location">👕 ${p.sample_location ? escapeHtml(p.sample_location) : "—"}</span>
+          <span class="loc-chip loc-chip-storage" title="Sample location (display piece)">👕 ${p[LOCATION_FIELDS.sample] ? escapeHtml(p[LOCATION_FIELDS.sample]) : "—"}</span>
+          <span class="loc-chip loc-chip-sample" title="Storage location (actual stock)">📦 ${p[LOCATION_FIELDS.stock] ? escapeHtml(p[LOCATION_FIELDS.stock]) : "—"}</span>
         </div>
         ${note || ""}
       </div>
@@ -222,6 +236,17 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
   }
   function renderResult() {
     const el = $("#loc-result");
+    if (state.confirm) {
+      const c = state.confirm, icon = c.field === LOCATION_FIELDS.stock ? "📦" : "👕";
+      el.innerHTML = `<div class="loc-msg loc-warn">⚠ <b>${escapeHtml(c.product.master_code)}</b> already has ${icon} <b class="loc-big">${escapeHtml(c.from)}</b> saved.<br>Replace it with <b class="loc-big">${escapeHtml(c.loc)}</b>? · មានទីតាំង ${escapeHtml(c.from)} រួចហើយ — ប្តូរទៅ ${escapeHtml(c.loc)}?
+        <div class="loc-actions" style="margin-top:10px">
+          <button type="button" class="btn btn-primary" id="loc-replace">Replace with ${escapeHtml(c.loc)} · ប្តូរ</button>
+          <button type="button" class="btn btn-secondary" id="loc-keep">Keep ${escapeHtml(c.from)} · ទុកដដែល</button>
+        </div></div>` + productCard(c.product);
+      $("#loc-replace").onclick = () => { const x = state.confirm; state.confirm = null; save(x.product, x.loc, true).then(() => input.focus()); };
+      $("#loc-keep").onclick = () => keepOld(false);
+      return;
+    }
     if (state.pick) {
       el.innerHTML = `<div class="loc-msg loc-warn">🔀 Label <b>${escapeHtml(state.pick.code)}</b> is on ${state.pick.products.length} products — tap the one in your hand · ចុចទំនិញដែលនៅក្នុងដៃ</div>` +
         `<div class="rec-grid">${state.pick.products.map((p, i) => `<button type="button" class="rec-card loc-pick" data-i="${i}"><div class="rec-body"><strong>${escapeHtml(p.master_code)}</strong><span>${escapeHtml(p.name || "")}</span></div></button>`).join("")}</div>`;
@@ -232,7 +257,7 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
     const last = state.log[0];
     if (last) {
       const p = state.products.find(x => x.id === last.product.id) || last.product;
-      el.innerHTML = `<div class="loc-msg loc-ok">✓ <b>${escapeHtml(p.master_code)}</b> ${last.field === "storage_location" ? "📦" : "👕"} ${last.same ? "already at" : "→"} <b class="loc-big">${escapeHtml(last.to)}</b>${last.from && !last.same ? ` <span class="muted">(was ${escapeHtml(last.from)})</span>` : ""}</div>` + productCard(p);
+      el.innerHTML = `<div class="loc-msg loc-ok">✓ <b>${escapeHtml(p.master_code)}</b> ${last.field === LOCATION_FIELDS.stock ? "📦" : "👕"} ${last.same ? "already at" : "→"} <b class="loc-big">${escapeHtml(last.to)}</b>${last.from && !last.same ? ` <span class="muted">(was ${escapeHtml(last.from)})</span>` : ""}</div>` + productCard(p);
       return;
     }
     el.innerHTML = "";
@@ -243,9 +268,9 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
     el.innerHTML = `<h3 style="margin-top:20px;">This session · វគ្គនេះ (${state.log.length})</h3>
       <div class="loc-log">${state.log.map((x, i) => `<div class="loc-log-row">
         <span class="master-code">${escapeHtml(x.product.master_code)}</span>
-        <span>${x.field === "storage_location" ? "📦" : "👕"} ${x.same ? "" : `${escapeHtml(x.from || "—")} → `}<b>${escapeHtml(x.to)}</b></span>
+        <span>${x.field === LOCATION_FIELDS.stock ? "📦" : "👕"} ${x.same ? "" : `${escapeHtml(x.from || "—")} → `}<b>${escapeHtml(x.to)}</b></span>
         <span class="muted">${x.t.toTimeString().slice(0, 5)}</span>
-        ${x.same || x.undone ? `<span class="muted">${x.undone ? "undone" : "no change"}</span>` : `<button type="button" class="btn btn-secondary loc-undo" data-i="${i}">Undo · ដកវិញ</button>`}
+        ${x.same || x.undone ? `<span class="muted">${x.undone ? "undone" : x.kept ? "kept (not " + escapeHtml(x.kept) + ")" : "no change"}</span>` : `<button type="button" class="btn btn-secondary loc-undo" data-i="${i}">Undo · ដកវិញ</button>`}
       </div>`).join("")}</div>`;
     el.querySelectorAll(".loc-undo").forEach(b => b.onclick = async () => {
       const x = state.log[+b.dataset.i]; b.disabled = true;

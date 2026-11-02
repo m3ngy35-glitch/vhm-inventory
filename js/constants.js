@@ -43,6 +43,16 @@ export function emptyVariant(overrides = {}) {
   };
 }
 
+// Which product field holds which location. Staff have always typed the ACTUAL STOCK
+// place (e.g. B23) into the field stored as "sample_location", and the sample /
+// display place into "storage_location" — so the screens follow the data instead of
+// the data being moved: every existing location stays exactly where it was saved.
+// Every screen (product card, detail, Edit form, 📍 Locations scans) reads this.
+export const LOCATION_FIELDS = {
+  stock: "sample_location",   // 📦 Storage location (actual stock) — e.g. B23
+  sample: "storage_location", // 👕 Sample location (display piece)
+};
+
 // Storage bin suggestions for the Live tab's location field (A1–A14).
 // It's a free-text field so any code (including ones outside this list,
 // like a second row B1–B14) still works — this just powers autocomplete.

@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { badge, escapeHtml, openGallery } from "./ui-components.js";
+import { LOCATION_FIELDS } from "./constants.js";
 
 export function openProductDetail(product, { category, tags }) {
   const cover = product.images?.[0]?.url || "";
@@ -29,8 +30,8 @@ export function openProductDetail(product, { category, tags }) {
           ${product.images?.length > 1 ? `<span class="image-count">${product.images.length} photos — tap to view</span>` : ""}
         </div>
         <div class="detail-locations">
-          <span class="loc-chip loc-chip-storage" title="Storage location">${product.storage_location ? escapeHtml(product.storage_location) : "—"}</span>
-          <span class="loc-chip loc-chip-sample" title="Sample location">${product.sample_location ? escapeHtml(product.sample_location) : "—"}</span>
+          <span class="loc-chip loc-chip-storage" title="Sample location (display piece)">👕 ${product[LOCATION_FIELDS.sample] ? escapeHtml(product[LOCATION_FIELDS.sample]) : "—"}</span>
+          <span class="loc-chip loc-chip-sample" title="Storage location (actual stock)">📦 ${product[LOCATION_FIELDS.stock] ? escapeHtml(product[LOCATION_FIELDS.stock]) : "—"}</span>
           <span class="price-tag detail-price-tag">${priceLabel}</span>
         </div>
         <h3 class="detail-title">${escapeHtml(product.name)}</h3>

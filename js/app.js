@@ -6,7 +6,7 @@
 import { subscribeProducts, listCategories, listTags, archiveProduct, restoreProduct, patchVariant, exportAllData } from "./db.js";
 import { buildSearchIndex, searchProducts, highlight } from "./search.js";
 import { badge, toast, openGallery, escapeHtml, confirmDialog } from "./ui-components.js";
-import { SIZES } from "./constants.js";
+import { SIZES, LOCATION_FIELDS } from "./constants.js";
 import { openProductForm } from "./product-form.js";
 import { openProductDetail } from "./product-detail.js";
 import { openCategoryTagManager } from "./category-tag-manager.js";
@@ -138,8 +138,9 @@ function renderProductCard(p) {
         ${p.images?.length > 1 ? `<span class="image-count">${p.images.length} photos</span>` : ""}
       </div>
       <div class="card-locations">
-        <span class="loc-chip loc-chip-storage" title="Storage location">${p.storage_location ? highlight(p.storage_location, state.query) : "—"}</span>
-        <span class="loc-chip loc-chip-sample" title="Sample location">${p.sample_location ? highlight(p.sample_location, state.query) : "—"}</span>
+        <!-- green chip = sample, yellow chip = stock location (the colours staff know) -->
+        <span class="loc-chip loc-chip-storage" title="Sample location (display piece)">👕 ${p[LOCATION_FIELDS.sample] ? highlight(p[LOCATION_FIELDS.sample], state.query) : "—"}</span>
+        <span class="loc-chip loc-chip-sample" title="Storage location (actual stock)">📦 ${p[LOCATION_FIELDS.stock] ? highlight(p[LOCATION_FIELDS.stock], state.query) : "—"}</span>
       </div>
       <div class="card-body">
         <div class="card-top-row">

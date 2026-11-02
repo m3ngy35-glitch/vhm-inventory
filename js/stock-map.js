@@ -46,7 +46,17 @@ async function gunzip(u8) {
   return new TextDecoder().decode(window.pako.ungzip(u8));
 }
 
-let MAP = null, lastCheck = 0, busy = null;
+let MAP = null, lastCheck = 0, busy = null, lastError = null;
+// why the last check failed, in words staff/manager can act on (null = it worked)
+function explain(e) {
+  const code = (e && (e.code || "")) + "", msg = (e && e.message) || String(e);
+  if (code === "no-map") return { code, text: "VHM Scan has no map online yet. Upload the new upload.html to VHM Scan, then do one PokPok or Vrich upload (or press 🗺 Build the map) on its upload page." };
+  if (/permission-denied|insufficient permissions/i.test(code + msg)) return { code: "permission-denied", text: "VHM Scan's Firebase rules (project vhm-menu) don't allow reading the map. Allow signed-in users to read sv2_meta/stockmap and sv2_catalog in vhm-menu's Firestore rules." };
+  if (/admin-restricted-operation|operation-not-allowed/i.test(code + msg)) return { code: "anon-off", text: "Anonymous sign-in is turned off in VHM Scan's Firebase (vhm-menu → Authentication → Sign-in method → Anonymous)." };
+  if (/unauthorized-domain|requests-from-referer|API key|referer/i.test(code + msg)) return { code: "domain", text: "VHM Scan's Firebase doesn't accept this website address. Add it in vhm-menu → Authentication → Settings → Authorised domains (and the API key's website restrictions, if any)." };
+  if (/network|offline|unavailable|failed to fetch/i.test(code + msg)) return { code: "network", text: "No connection to VHM Scan (internet?)." };
+  return { code: code || "error", text: "Could not read the map from VHM Scan: " + (code ? code + " — " : "") + msg };
+}
 const listeners = new Set();
 
 // number (PokPok code, PokPok barcode or Vrich stock code) -> product codes it belongs to
@@ -67,7 +77,7 @@ async function fetchOnline() {
   if (!auth.currentUser) { await auth.authStateReady?.(); if (!auth.currentUser) await signInAnonymously(auth); }
   const db = getFirestore(app);
   const ptr = await getDoc(doc(db, "sv2_meta", "stockmap"));
-  if (!ptr.exists()) return null;
+  if (!ptr.exists()) { const e = new Error("no map published"); e.code = "no-map"; throw e; }
   const p = ptr.data();
   if (MAP && MAP.ver === p.ver) return MAP;
   const parts = [];
@@ -90,8 +100,8 @@ export function loadStockMap(force) {
   busy = (async () => {
     try {
       if (!MAP) { const c = await kv.get("map"); if (c && Array.isArray(c.items)) adopt(c, c.ver ? "online" : "file"); }
-      if (force || Date.now() - lastCheck > CHECK_EVERY_MS) { lastCheck = Date.now(); await fetchOnline(); }
-    } catch (e) { console.warn("Stock map: could not check VHM Scan for a newer map —", e.message || e); }
+      if (force || Date.now() - lastCheck > CHECK_EVERY_MS) { lastCheck = Date.now(); await fetchOnline(); lastError = null; }
+    } catch (e) { lastError = explain(e); console.warn("Stock map: could not check VHM Scan for a newer map —", e.code || "", e.message || e); }
     finally { busy = null; }
     return MAP;
   })();
@@ -104,6 +114,7 @@ export async function useMapFile(m) {
   return adopt(m, "file");
 }
 export const currentStockMap = () => MAP;
+export const stockMapError = () => lastError;
 export function onStockMap(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 // product codes a scanned number belongs to ([] if unknown)
 export function codesForNumber(raw) { return (MAP && MAP.index.get(norm(raw))) || []; }

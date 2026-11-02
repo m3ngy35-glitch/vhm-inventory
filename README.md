@@ -94,9 +94,15 @@ is actually being used day to day and hits a real limit.
    loads by itself from VHM Scan Verify (the source — its upload page
    publishes it after every PokPok / Vrich upload). A map file can still be
    opened by hand at the bottom of the tab when there is no internet.
-3. Scan the location barcode (A1). It is saved on the product's
-   `storage_location` / `sample_location` (replacing the old one) — the same
-   fields the product card and the Edit Product form show.
+3. Scan the location barcode (B23). It is saved in the same field the
+   product card and the Edit Product form show for that location. If the
+   code already has a different location there, the app asks "B23 is saved —
+   replace with A5?" — nothing is replaced unless staff tap Replace.
+
+**Which field holds what:** staff have always typed the actual stock place
+(e.g. B23) into the field stored as `sample_location`, and the sample/display
+place into `storage_location`. The screens follow that data (see
+`LOCATION_FIELDS` in `js/constants.js`) — nothing was moved or rewritten.
 
 - **📌 Same location for the next items:** scan a location once, then every
   product scanned is saved straight to it — for filling one shelf.

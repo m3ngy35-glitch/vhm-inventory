@@ -7,7 +7,7 @@
 import { saveProduct } from "./db.js";
 import { badge, toast, escapeHtml } from "./ui-components.js";
 import { createImageUploader } from "./image-upload.js";
-import { VARIANT_TYPES, sizesForType, COLOR_SUGGESTIONS, STORAGE_LOCATIONS, SAMPLE_LOCATIONS } from "./constants.js";
+import { VARIANT_TYPES, sizesForType, COLOR_SUGGESTIONS, STORAGE_LOCATIONS, SAMPLE_LOCATIONS, LOCATION_FIELDS } from "./constants.js";
 import { generateVariants, renderVariantTable, readVariantTable } from "./variant-matrix.js";
 
 export function openProductForm({ product, categories, tags, onSaved }) {
@@ -65,14 +65,15 @@ export function openProductForm({ product, categories, tags, onSaved }) {
         </label>
 
         <div class="form-row">
+          <!-- labels follow the saved data (see LOCATION_FIELDS in constants.js): actual stock = ${LOCATION_FIELDS.stock} -->
           <label>Storage location <span class="muted">(actual stock)</span>
-            <input id="f-storage-location" type="text" list="f-storage-locations" value="${escapeHtml(state.storage_location)}" placeholder="A1" />
-            <datalist id="f-storage-locations">
+            <input id="f-loc-stock" type="text" list="f-stock-locations" value="${escapeHtml(state[LOCATION_FIELDS.stock])}" placeholder="e.g. B23" />
+            <datalist id="f-stock-locations">
               ${STORAGE_LOCATIONS.map(loc => `<option value="${loc}"></option>`).join("")}
             </datalist>
           </label>
           <label>Sample location <span class="muted">(display piece)</span>
-            <input id="f-sample-location" type="text" list="f-sample-locations" value="${escapeHtml(state.sample_location)}" placeholder="e.g. Front window" />
+            <input id="f-loc-sample" type="text" list="f-sample-locations" value="${escapeHtml(state[LOCATION_FIELDS.sample])}" placeholder="e.g. Front window" />
             <datalist id="f-sample-locations">
               ${SAMPLE_LOCATIONS.map(loc => `<option value="${loc}"></option>`).join("")}
             </datalist>
@@ -230,8 +231,8 @@ export function openProductForm({ product, categories, tags, onSaved }) {
         description: overlay.querySelector("#f-description").value.trim(),
         category_id: overlay.querySelector("#f-category").value,
         tag_ids: [...overlay.querySelectorAll("#f-tags input:checked")].map(el => el.value),
-        storage_location: overlay.querySelector("#f-storage-location").value.trim(),
-        sample_location: overlay.querySelector("#f-sample-location").value.trim(),
+        [LOCATION_FIELDS.stock]: overlay.querySelector("#f-loc-stock").value.trim(),
+        [LOCATION_FIELDS.sample]: overlay.querySelector("#f-loc-sample").value.trim(),
         variants: finalVariants,
         images: product?.images || [],
       };
