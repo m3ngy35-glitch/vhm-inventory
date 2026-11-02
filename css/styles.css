@@ -473,3 +473,25 @@ input[type=text], input[type=number], textarea {
   .scan-item-img { width: 100%; height: 200px; }
   .rec-grid { grid-template-columns: 1fr; }
 }
+
+/* Locations tab — scan product, then scan location */
+.loc-modes { flex-wrap: wrap; }
+.loc-box { max-width: 640px; }
+.loc-step { font-size: 15px; line-height: 1.5; }
+.loc-big { font-size: 22px; }
+.loc-lock { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+.scan-box .loc-lock { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.scan-box .loc-lock input { width: 22px; height: 22px; padding: 0; margin: 0; flex: none; font-size: inherit; border: 0; }
+.loc-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.loc-msg { margin-top: 16px; max-width: 640px; padding: 12px 14px; border-radius: var(--radius); font-size: 16px; }
+.loc-ok { background: #dcfce7; color: #14532d; border: 1px solid #86efac; }
+.loc-bad { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; }
+.loc-warn { background: #ffedd5; color: #7c2d12; border: 1px solid #fdba74; }
+.loc-card { margin-top: 10px; }
+.loc-pick { cursor: pointer; text-align: left; font: inherit; min-height: 56px; }
+.loc-map { margin-top: 14px; max-width: 640px; font-size: 13px; }
+.loc-mapbtn { color: var(--primary); text-decoration: underline; cursor: pointer; }
+.loc-log { display: flex; flex-direction: column; gap: 6px; max-width: 640px; }
+.loc-log-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.loc-log-row .btn { margin-left: auto; min-height: 36px; padding: 4px 12px; }
+@media (max-width: 640px) { .loc-modes .live-tab-btn { flex: 1 1 100%; } }

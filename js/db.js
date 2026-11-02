@@ -9,7 +9,7 @@ import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.13
 import {
   getFirestore, collection, doc, getDocs, getDoc, addDoc, setDoc,
   updateDoc, deleteDoc, query, orderBy, onSnapshot, writeBatch, serverTimestamp,
-  runTransaction,
+  runTransaction, where, Timestamp,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import {
   getStorage, ref, uploadBytes, getDownloadURL, deleteObject,
@@ -90,12 +90,88 @@ export async function listProducts() {
   return snap.docs.map(d => ({ ...d.data(TIMESTAMP_OPTS), id: d.id }));
 }
 
+// ---------- Product list: device cache + "only download what changed" ----------
+// Reading the whole products collection on every open/refresh cost one read
+// per product (2,000+ per open, per device). Now:
+//   - this device keeps the product list (IndexedDB) between opens;
+//   - on open it shows the cached list at once and asks Firestore only for
+//     products whose updated_at is newer than the newest one it already has
+//     (usually 0–20 reads instead of 2,000+);
+//   - that same small query stays live, so edits from other staff still
+//     appear within seconds (1 read per changed product, as before);
+//   - once a week (or with no cache) it reads everything once, which also
+//     catches anything changed outside the app (e.g. a product removed in the
+//     Firebase console).
+// Every write in this file sets updated_at, including archive/restore, so a
+// soft delete reaches other devices too. All tabs share ONE listener.
+const PCACHE = { key: "products_v1", fullEveryMs: 7 * 864e5 };
+const pc = { docs: new Map(), maxMs: 0, fullAt: 0, loaded: false };
+const productSubscribers = new Set();
+let productListenerStop = null, productSyncStarted = false;
+
+const tsMs = v => (v && typeof v.toMillis === "function") ? v.toMillis() : (typeof v === "number" ? v : 0);
+// Timestamps can't be stored in IndexedDB as-is (they lose their methods): kept as { __ts: millis }
+function packTs(v) {
+  if (v === null || v === undefined) return v;
+  if (typeof v.toMillis === "function") return { __ts: v.toMillis() };
+  if (Array.isArray(v)) return v.map(packTs);
+  if (typeof v === "object") { const o = {}; for (const [k, x] of Object.entries(v)) o[k] = packTs(x); return o; }
+  return v;
+}
+function unpackTs(v) {
+  if (v === null || v === undefined) return v;
+  if (Array.isArray(v)) return v.map(unpackTs);
+  if (typeof v === "object") { if (typeof v.__ts === "number" && Object.keys(v).length === 1) return Timestamp.fromMillis(v.__ts); const o = {}; for (const [k, x] of Object.entries(v)) o[k] = unpackTs(x); return o; }
+  return v;
+}
+const cacheDb = {
+  open() { return new Promise((res, rej) => { const r = indexedDB.open("vhminv_cache", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
+  async get(k) { try { const d = await this.open(); return await new Promise(res => { const q = d.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(undefined); }); } catch (e) { return undefined; } },
+  async set(k, v) { try { const d = await this.open(); return await new Promise(res => { const t = d.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = () => res(true); t.onerror = () => res(false); }); } catch (e) { return false; } },
+};
+function productList() { return [...pc.docs.values()].sort((a, b) => tsMs(b.updated_at) - tsMs(a.updated_at)); }   // newest first, as before
+function emitProducts() { const list = productList(); productSubscribers.forEach(cb => { try { cb(list); } catch (e) { console.error(e); } }); }
+let persistTimer = null;
+function persistProducts() {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => cacheDb.set(PCACHE.key, { maxMs: pc.maxMs, fullAt: pc.fullAt, docs: [...pc.docs.values()].map(packTs) }), 800);
+}
+async function startProductSync() {
+  const c = await cacheDb.get(PCACHE.key);
+  if (c && Array.isArray(c.docs) && c.maxMs && Date.now() - (c.fullAt || 0) < PCACHE.fullEveryMs) {
+    c.docs.forEach(d => { const x = unpackTs(d); pc.docs.set(x.id, x); });
+    pc.maxMs = c.maxMs; pc.fullAt = c.fullAt; pc.loaded = true;
+    emitProducts();                                   // the cached list shows at once
+  } else { pc.docs.clear(); pc.maxMs = 0; pc.fullAt = Date.now(); }
+  if (!productSubscribers.size) { productSyncStarted = false; return; }   // everyone left while the cache was loading
+  const col = collection(dbFs, "products");
+  // ">" newest-known minus 1 ms = also re-reads the newest product (1 read) so nothing written in the same millisecond is missed
+  const q = pc.maxMs ? query(col, where("updated_at", ">", Timestamp.fromMillis(pc.maxMs - 1)), orderBy("updated_at")) : query(col, orderBy("updated_at"));
+  let first = true;
+  productListenerStop = onSnapshot(q, snap => {
+    const changes = snap.docChanges();
+    changes.forEach(ch => {
+      // "removed" = the product left this "changed since" window; it still exists (deletes in this app are soft) — keep it
+      if (ch.type === "removed") return;
+      const d = { ...ch.doc.data(TIMESTAMP_OPTS), id: ch.doc.id };
+      pc.docs.set(d.id, d);
+      // only server-confirmed times move the sync point (a pending local write only has this device's clock estimate)
+      if (!ch.doc.metadata.hasPendingWrites) pc.maxMs = Math.max(pc.maxMs, tsMs(d.updated_at));
+    });
+    if (first || changes.length) { first = false; pc.loaded = true; emitProducts(); persistProducts(); }
+  }, err => console.error("Product sync failed", err));
+}
 export function subscribeProducts(callback) {
-  // live updates — multiple staff editing at once stay in sync
-  const q = query(collection(dbFs, "products"), orderBy("updated_at", "desc"));
-  return onSnapshot(q, snap => {
-    callback(snap.docs.map(d => ({ ...d.data(TIMESTAMP_OPTS), id: d.id })));
-  });
+  productSubscribers.add(callback);
+  if (!productSyncStarted) { productSyncStarted = true; startProductSync(); }
+  else if (pc.loaded) setTimeout(() => { if (productSubscribers.has(callback)) callback(productList()); }, 0);
+  return () => {
+    productSubscribers.delete(callback);
+    if (!productSubscribers.size) {                  // last tab left (e.g. sign out): stop the one listener
+      productListenerStop?.(); productListenerStop = null; productSyncStarted = false;
+      pc.docs.clear(); pc.loaded = false;
+    }
+  };
 }
 
 export async function getProduct(id) {
@@ -141,6 +217,8 @@ export async function archiveProduct(id) {
     deleted: true,
     deleted_at: serverTimestamp(),
     deleted_by: currentUserEmail(),
+    updated_at: serverTimestamp(),           // so other devices' "only what changed" sync sees the delete
+    updated_by: currentUserEmail(),
   });
 }
 
@@ -149,6 +227,8 @@ export async function restoreProduct(id) {
     deleted: false,
     deleted_at: null,
     deleted_by: null,
+    updated_at: serverTimestamp(),           // so other devices see the restore
+    updated_by: currentUserEmail(),
   });
 }
 

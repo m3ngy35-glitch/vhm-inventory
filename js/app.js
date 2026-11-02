@@ -12,6 +12,7 @@ import { openProductDetail } from "./product-detail.js";
 import { openCategoryTagManager } from "./category-tag-manager.js";
 import { watchAuth, login, logout } from "./auth.js";
 import { initLiveTab } from "./live-tab.js";
+import { initLocationsTab } from "./locations-tab.js";
 
 const state = {
   products: [],
@@ -370,34 +371,51 @@ async function downloadBackup() {
 
 let liveTabInitialized = false;
 let unsubscribeLiveTab = null;
+let locTabInitialized = false;
+let unsubscribeLocTab = null;
+// tabs that reuse the Products tab's live product list instead of opening their own Firestore listener
+const productWatchers = new Set();
 function wireNav() {
   const navProducts = document.getElementById("nav-products");
   const navLive = document.getElementById("nav-live");
+  const navLoc = document.getElementById("nav-loc");
   const productsView = document.getElementById("products-view");
   const liveView = document.getElementById("live-view");
+  const locView = document.getElementById("loc-view");
   const toolbar = document.getElementById("products-toolbar");
   const toolbarActions = document.getElementById("products-toolbar-actions");
 
-  navProducts.onclick = () => {
-    navProducts.classList.add("active");
-    navLive.classList.remove("active");
-    productsView.hidden = false;
-    liveView.hidden = true;
-    toolbar.hidden = false;
-    toolbarActions.hidden = false;
-  };
+  // one view at a time; the products toolbar only belongs to the Products view
+  function show(which) {
+    navProducts.classList.toggle("active", which === "products");
+    navLive.classList.toggle("active", which === "live");
+    navLoc.classList.toggle("active", which === "loc");
+    productsView.hidden = which !== "products";
+    liveView.hidden = which !== "live";
+    locView.hidden = which !== "loc";
+    toolbar.hidden = which !== "products";
+    toolbarActions.hidden = which !== "products";
+  }
+
+  navProducts.onclick = () => show("products");
 
   navLive.onclick = () => {
-    navLive.classList.add("active");
-    navProducts.classList.remove("active");
-    productsView.hidden = true;
-    liveView.hidden = false;
-    toolbar.hidden = true;
-    toolbarActions.hidden = true;
+    show("live");
     if (!liveTabInitialized) {
       liveTabInitialized = true;
       unsubscribeLiveTab = initLiveTab(liveView);
     }
+  };
+
+  navLoc.onclick = () => {
+    show("loc");
+    if (!locTabInitialized) {
+      locTabInitialized = true;
+      unsubscribeLocTab = initLocationsTab(locView, {
+        getProducts: () => state.allProducts,
+        onProducts: fn => { productWatchers.add(fn); return () => productWatchers.delete(fn); },
+      });
+    } else locView.querySelector("#loc-input")?.focus();
   };
 }
 
@@ -418,6 +436,7 @@ async function startApp() {
       state.products = products.filter(p => !p.deleted);
       rebuildIndex();
       renderGrid();
+      productWatchers.forEach(fn => fn(products));
     });
   } catch (err) {
     console.error(err);
@@ -433,6 +452,11 @@ function showLogin() {
   unsubscribeLiveTab?.();
   unsubscribeLiveTab = null;
   liveTabInitialized = false;
+  unsubscribeLocTab?.();
+  unsubscribeLocTab = null;
+  locTabInitialized = false;
+  const locView = document.getElementById("loc-view");
+  if (locView) locView.innerHTML = "";
   document.getElementById("app-shell").hidden = true;
   const loginScreen = document.getElementById("login-screen");
   loginScreen.hidden = false;

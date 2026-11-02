@@ -27,6 +27,7 @@ responsibility so one part can change without risking another:
 | `js/category-tag-manager.js` | Manage categories & tags (name + color badge) |
 | `js/ui-components.js` | Color badges, toasts, the full-screen photo gallery |
 | `js/app.js` | Main page: search bar, filters, product grid, inline quick-edit |
+| `js/locations-tab.js` | 📍 Locations tab: scan a product, then a location barcode → saves its storage or sample location |
 
 If you want to add a feature later, you almost always only touch one file.
 
@@ -83,3 +84,33 @@ Postgres + backend API + Docker setup originally described, hosted on a
 small server. That's a bigger commitment (a server to maintain, database
 backups, deployments) so it's worth doing only once this lighter version
 is actually being used day to day and hits a real limit.
+
+## 📍 Locations tab (scan product → scan location)
+
+1. Choose **📦 Storage location** or **👕 Sample location** at the top.
+2. Scan the product: its master code (E366), a POS / alternate code, or a
+   PokPok label (P0003955). PokPok labels need the map file from VHM Scan
+   Verify (upload page → 🗺 PokPok ↔ Vrich map → "Map file for Stock
+   Count"); open it once at the bottom of the tab and the device keeps it.
+3. Scan the location barcode (A1). It is saved on the product's
+   `storage_location` / `sample_location` (replacing the old one) — the same
+   fields the product card and the Edit Product form show.
+
+- **📌 Same location for the next items:** scan a location once, then every
+  product scanned is saved straight to it — for filling one shelf.
+- A label number used by several products (e.g. P0003963) asks which one
+  is in your hand.
+- **Undo** on each line of "This session" puts the old location back.
+- **🖨 Print location labels** makes Code 128 barcodes for A1–A14 (or any
+  list you type) to stick on the shelves.
+
+## Firestore reads (kept low on purpose)
+
+- **Product list:** each device keeps the list on the device (IndexedDB)
+  and, on open, downloads only products changed since its last sync
+  (`db.js → subscribeProducts`). Reopening costs a few reads instead of one
+  per product. Once a week it re-reads everything once. All tabs share one
+  listener. Every product write sets `updated_at` (archive/restore too) —
+  keep it that way in any new write, or other devices won't see the change
+  until the weekly full read.
+- **📍 Locations tab:** no reads of its own — 1 write per save.
