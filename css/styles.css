@@ -495,3 +495,27 @@ input[type=text], input[type=number], textarea {
 .loc-log-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 .loc-log-row .btn { margin-left: auto; min-height: 36px; padding: 4px 12px; }
 @media (max-width: 640px) { .loc-modes .live-tab-btn { flex: 1 1 100%; } }
+
+/* ---------- 🔄 Cycle tab (Stock → Sample → Live Room) ---------- */
+.cy-flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.cy-arrow { color: var(--muted); font-weight: 700; }
+.cy-chip { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 20px; border: 1px solid transparent; white-space: nowrap; }
+.cy-stock { background: #fef3c7; color: #78350f; border-color: #fcd34d; }
+.cy-sample { background: #dcfce7; color: #14532d; border-color: #86efac; }
+.cy-live { background: #fee2e2; color: #7f1d1d; border-color: #fca5a5; }
+.cy-stations { flex-wrap: wrap; }
+.cy-filter { margin: 4px 0 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; width: 100%; max-width: 320px; font-size: 15px; }
+.cy-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.cy-col { border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto; }
+.cy-col-head { font-weight: 700; display: flex; justify-content: space-between; gap: 6px; position: sticky; top: -10px; background: inherit; padding: 2px 0 6px; }
+.cy-item { display: flex; gap: 8px; align-items: center; justify-content: space-between; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font: inherit; color: var(--text); cursor: pointer; text-align: left; }
+.cy-empty { padding: 6px 2px; }
+.cy-row-skip { background: #fff7ed; }
+.cy-table-wrap { overflow-x: auto; }
+.cy-table td, .cy-table th { white-space: nowrap; }
+@media (max-width: 640px) {
+  .cy-stations .live-tab-btn { flex: 1 1 calc(50% - 8px); }
+  .cy-board { grid-template-columns: 1fr; }
+  .cy-col { max-height: none; }
+}
+.cy-side { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }

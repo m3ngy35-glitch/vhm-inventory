@@ -312,3 +312,53 @@ export async function deleteProductImage(path) {
     console.warn("Image delete failed (may already be gone):", e.message);
   }
 }
+
+// ---------- 🔄 Cycle log (Stock → Sample → Live Room → Stock …) ----------
+// Every scan in the Cycle tab = ONE batch of 2 writes:
+//   cycle_log/<auto id>  → the move itself (append-only history)
+//   products/<id>        → cycle_stage / cycle_at / cycle_round (where it is NOW,
+//                          so every device sees it through the normal product sync
+//                          without any extra listener or read)
+// Reads happen only when someone opens a code's history or loads a day's log.
+export async function logCycleMove(product, move) {
+  const batch = writeBatch(dbFs);
+  const logRef = doc(collection(dbFs, "cycle_log"));
+  const by = currentUserEmail();
+  batch.set(logRef, { ...move, product_id: product.id, master_code: product.master_code || "", at: serverTimestamp(), at_ms: Date.now(), by });
+  batch.update(doc(dbFs, "products", product.id), {
+    cycle_stage: move.to,
+    cycle_at: new Date().toISOString(),
+    cycle_round: move.round,
+    updated_at: serverTimestamp(),
+    updated_by: by,
+  });
+  await batch.commit();
+  return logRef.id;
+}
+
+// Undo = remove that log line and put the product's stage back exactly as it was.
+export async function undoCycleMove(logId, productId, prev) {
+  const batch = writeBatch(dbFs);
+  batch.delete(doc(dbFs, "cycle_log", logId));
+  batch.update(doc(dbFs, "products", productId), {
+    cycle_stage: prev.cycle_stage ?? null,
+    cycle_at: prev.cycle_at ?? null,
+    cycle_round: prev.cycle_round ?? 0,
+    updated_at: serverTimestamp(),
+    updated_by: currentUserEmail(),
+  });
+  await batch.commit();
+}
+
+// One code's full history (single-field filter → no composite index needed; sorted here).
+export async function listCycleLogForProduct(productId) {
+  const snap = await getDocs(query(collection(dbFs, "cycle_log"), where("product_id", "==", productId)));
+  return snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.at_ms || 0) - (a.at_ms || 0));
+}
+
+// Every move between two times (ms) — for the day log / CSV. Single field → no index needed.
+export async function listCycleLogBetween(fromMs, toMs) {
+  const snap = await getDocs(query(collection(dbFs, "cycle_log"),
+    where("at_ms", ">=", fromMs), where("at_ms", "<", toMs), orderBy("at_ms", "desc")));
+  return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+}

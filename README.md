@@ -29,6 +29,7 @@ responsibility so one part can change without risking another:
 | `js/app.js` | Main page: search bar, filters, product grid, inline quick-edit |
 | `js/stock-map.js` | 🔌 Reads the PokPok ↔ Vrich map from VHM Scan Verify (its project, read-only) so PokPok labels work |
 | `js/locations-tab.js` | 📍 Locations tab: scan a product, then a location barcode → saves its storage or sample location |
+| `js/cycle-tab.js` | 🔄 Cycle tab: logs every Stock → Sample → Live Room → Stock move by scan |
 
 If you want to add a feature later, you almost always only touch one file.
 
@@ -134,3 +135,34 @@ vhm-menu (the same access the packing phones use), in a separate Firebase app
 opened (version check), 1–2 more only when the map changed; the map is kept on
 the device. An unknown label triggers one extra check, so a brand-new code
 works as soon as the manager has uploaded the lists.
+
+## 🔄 Cycle tab (Sample ⇄ Live Room, Stock when the sample container is full)
+
+Logs every move of a sample piece by scanning:
+
+- Normal cycle: 👕 Sample → 🎥 Live Room → 👕 Sample → … (repeats)
+- 📦 Stock is only for when the sample container is full: the extra piece goes to
+  Stock as a replacement and later comes back to Sample (or straight to Live).
+
+1. **Choose the station** by tapping its button or scanning its station barcode
+   (**🖨 Print station labels** prints `SAMPLE`, `LIVE`, `STOCK` and `NEXT`). The
+   device remembers its station, so the live-room scanner can stay on 🎥 Live Room.
+   **➡ Next step** mode: each scan flips Sample ⇄ Live; a code in Stock goes to Sample.
+2. **Scan each product** as it arrives: master code, POS / alternate code, or PokPok label.
+   Each scan logs one move. A move to Stock is logged with reason "sample full" and shows the
+   📦 stock place (e.g. B23); a move to Sample shows the 👕 sample spot.
+
+Checks: if a code is already in that stage, nothing is logged and a warning beep plays.
+A scanner double beep (the same code within 4 s) is ignored. **Undo** removes the newest move of a code.
+
+- **Board:** what is in Sample, the Live Room and Stock (replacement) right now, and how long
+  each piece has been there (longest first). 🎥×N = times the code has gone live. Tap a code
+  for its full history.
+- **📜 Day log:** every move on a chosen day, with totals and a CSV download.
+- The product card also shows a chip with the current stage and time (e.g. 🎥 Live Room · 2h 5m).
+
+Data: `cycle_log` gets one doc per move (from, to, times live, reason, time in the previous
+stage, scanned code, size/colour if a POS code was scanned, who, when). The product gets
+`cycle_stage`, `cycle_at` and `cycle_round` (= times live).
+Cost: each scan is 2 writes in one batch, with no reads. Reads happen only when you open a
+history or a day log. No new Firestore index or rule is needed.

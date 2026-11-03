@@ -13,6 +13,7 @@ import { openCategoryTagManager } from "./category-tag-manager.js";
 import { watchAuth, login, logout } from "./auth.js";
 import { initLiveTab } from "./live-tab.js";
 import { initLocationsTab } from "./locations-tab.js";
+import { initCycleTab, stageChip } from "./cycle-tab.js";
 
 const state = {
   products: [],
@@ -141,6 +142,7 @@ function renderProductCard(p) {
         <!-- green chip = sample, yellow chip = stock location (the colours staff know) -->
         <span class="loc-chip loc-chip-storage" title="Sample location (display piece)">👕 ${p[LOCATION_FIELDS.sample] ? highlight(p[LOCATION_FIELDS.sample], state.query) : "—"}</span>
         <span class="loc-chip loc-chip-sample" title="Storage location (actual stock)">📦 ${p[LOCATION_FIELDS.stock] ? highlight(p[LOCATION_FIELDS.stock], state.query) : "—"}</span>
+        ${stageChip(p.cycle_stage, p.cycle_at)}
       </div>
       <div class="card-body">
         <div class="card-top-row">
@@ -374,12 +376,16 @@ let liveTabInitialized = false;
 let unsubscribeLiveTab = null;
 let locTabInitialized = false;
 let unsubscribeLocTab = null;
+let cycleTabInitialized = false;
+let unsubscribeCycleTab = null;
 // tabs that reuse the Products tab's live product list instead of opening their own Firestore listener
 const productWatchers = new Set();
 function wireNav() {
   const navProducts = document.getElementById("nav-products");
   const navLive = document.getElementById("nav-live");
   const navLoc = document.getElementById("nav-loc");
+  const navCycle = document.getElementById("nav-cycle");
+  const cycleView = document.getElementById("cycle-view");
   const productsView = document.getElementById("products-view");
   const liveView = document.getElementById("live-view");
   const locView = document.getElementById("loc-view");
@@ -391,6 +397,8 @@ function wireNav() {
     navProducts.classList.toggle("active", which === "products");
     navLive.classList.toggle("active", which === "live");
     navLoc.classList.toggle("active", which === "loc");
+    navCycle.classList.toggle("active", which === "cycle");
+    cycleView.hidden = which !== "cycle";
     productsView.hidden = which !== "products";
     liveView.hidden = which !== "live";
     locView.hidden = which !== "loc";
@@ -417,6 +425,17 @@ function wireNav() {
         onProducts: fn => { productWatchers.add(fn); return () => productWatchers.delete(fn); },
       });
     } else locView.querySelector("#loc-input")?.focus();
+  };
+
+  navCycle.onclick = () => {
+    show("cycle");
+    if (!cycleTabInitialized) {
+      cycleTabInitialized = true;
+      unsubscribeCycleTab = initCycleTab(cycleView, {
+        getProducts: () => state.allProducts,
+        onProducts: fn => { productWatchers.add(fn); return () => productWatchers.delete(fn); },
+      });
+    } else cycleView.querySelector("#cy-input")?.focus();
   };
 }
 
@@ -458,6 +477,11 @@ function showLogin() {
   locTabInitialized = false;
   const locView = document.getElementById("loc-view");
   if (locView) locView.innerHTML = "";
+  unsubscribeCycleTab?.();
+  unsubscribeCycleTab = null;
+  cycleTabInitialized = false;
+  const cycleView = document.getElementById("cycle-view");
+  if (cycleView) cycleView.innerHTML = "";
   document.getElementById("app-shell").hidden = true;
   const loginScreen = document.getElementById("login-screen");
   loginScreen.hidden = false;
