@@ -537,3 +537,41 @@ input[type=text], input[type=number], textarea {
 .size-out-txt { color: #9ca3af; text-decoration: line-through; }
 .sizes-stamp { font-size: 12px; }
 .size-err { color: #b45309; }
+
+/* ---------- location chips you can type in ---------- */
+.loc-edit { display: inline-flex; align-items: center; gap: 3px; cursor: text; transition: box-shadow .2s; }
+.loc-edit:focus-within { box-shadow: 0 0 0 2px var(--primary); }
+.loc-input { border: 0; background: transparent; font: inherit; color: inherit; padding: 0; margin: 0; min-width: 2ch; max-width: 14ch; outline: none; }
+.loc-input::placeholder { color: inherit; opacity: .55; }
+.loc-hit { box-shadow: 0 0 0 2px #facc15; }
+.loc-saving { opacity: .6; }
+.loc-saved { box-shadow: 0 0 0 2px #16a34a; }
+.undo-toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); background: #1a1d23; color: #fff; padding: 10px 12px 10px 16px; border-radius: 10px; display: flex; gap: 14px; align-items: center; z-index: 10001; font-size: 14px; transition: transform .2s; max-width: calc(100vw - 32px); }
+.undo-toast.show { transform: translate(-50%, 0); }
+.undo-toast button { background: transparent; color: #93c5fd; border: 1px solid #93c5fd55; border-radius: 6px; padding: 4px 10px; font: inherit; font-weight: 700; cursor: pointer; }
+/* ---------- Categories & Tags manager ---------- */
+.meta-help { margin-top: 0; font-size: 13px; }
+.meta-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.meta-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--border); transition: box-shadow .2s; }
+.meta-row.meta-saved { box-shadow: 0 0 0 2px #16a34a; }
+.meta-color { width: 32px; height: 28px; padding: 0; border: 0; background: none; cursor: pointer; flex: none; }
+.meta-name { flex: 1; min-width: 0; border: 1px solid transparent; border-radius: 6px; padding: 5px 7px; font: inherit; font-weight: 600; background: transparent; color: var(--text); }
+.meta-name:hover { border-color: var(--border); }
+.meta-name:focus { border-color: var(--primary); outline: none; background: var(--card); }
+.meta-count { font-size: 12px; white-space: nowrap; }
+.meta-filter { width: 100%; margin-bottom: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+.meta-deleted { margin-top: 14px; }
+.meta-deleted summary { cursor: pointer; color: var(--muted); }
+.meta-row-deleted { margin-top: 6px; flex-wrap: wrap; }
+.meta-row-deleted .btn { margin-left: auto; }
+.meta-pin { font-size: 13px; margin-top: 14px; }
+.pin-input { width: 100%; font-size: 22px; letter-spacing: 6px; text-align: center; padding: 8px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 8px; }
+.pin-err { color: var(--danger); margin: 0; }
+/* the general form "label / input" styles must not stretch the chips */
+.card-locations label.loc-edit { display: inline-flex; flex-direction: row; align-items: center; gap: 4px; margin: 0; font-size: 12px; font-weight: 700; line-height: 1.4; }
+.card-locations .loc-edit input.loc-input { border: 0; background: transparent; padding: 0; margin: 0; width: auto; height: auto; min-height: 0; font-size: 12px; font-weight: 700; line-height: 1.4; box-shadow: none; border-radius: 0; }
+.loc-input::-webkit-calendar-picker-indicator { display: none !important; }
+/* 📍 Scan tab extras */
+.cy-shelf-btn { border-style: dashed; }
+.cy-overdue { border-color: #ef4444; background: #fff1f2; }
+.cy-over-n { color: #b91c1c; font-weight: 700; }

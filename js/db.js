@@ -300,7 +300,9 @@ function serializeTimestamps(value) {
 export async function uploadProductImage(productId, file, order) {
   const path = `products/${productId}/${Date.now()}_${file.name}`;
   const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file);
+  // a photo never changes once uploaded (a new photo gets a new name), so browsers may keep it
+  // for a year instead of downloading it again on every open
+  await uploadBytes(storageRef, file, { cacheControl: "public, max-age=31536000, immutable" });
   const url = await getDownloadURL(storageRef);
   return { url, path, order, name: file.name };
 }
@@ -363,4 +365,52 @@ export async function listCycleLogBetween(fromMs, toMs) {
   const snap = await getDocs(query(collection(dbFs, "cycle_log"),
     where("at_ms", ">=", fromMs), where("at_ms", "<", toMs), orderBy("at_ms", "desc")));
   return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+}
+
+// ---------- Manager PIN (protects deleting tags / categories) ----------
+// Stored only as a SHA-256 hash in settings/admin. It's a guard against
+// accidental deletes by staff, not a security wall (any signed-in account can
+// still write Firestore directly).
+// Plain-JS SHA-256 (works on http, https and file:// alike — crypto.subtle only exists on https).
+async function sha256(text) {
+  const K = [], H = [], isPrime = n => { for (let f = 2; f * f <= n; f++) if (n % f === 0) return false; return true; };
+  const frac = x => ((x - Math.floor(x)) * 0x100000000) | 0;
+  for (let n = 2, i = 0; i < 64; n++) if (isPrime(n)) { if (i < 8) H[i] = frac(Math.pow(n, 1 / 2)); K[i++] = frac(Math.pow(n, 1 / 3)); }
+  const bytes = [...new TextEncoder().encode(text)], bitLen = bytes.length * 8;
+  bytes.push(0x80); while (bytes.length % 64 !== 56) bytes.push(0);
+  for (let i = 7; i >= 0; i--) bytes.push(i > 3 ? 0 : (bitLen >>> (i * 8)) & 0xff);
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n)), W = new Array(64);
+  for (let off = 0; off < bytes.length; off += 64) {
+    for (let i = 0; i < 16; i++) W[i] = (bytes[off + i * 4] << 24) | (bytes[off + i * 4 + 1] << 16) | (bytes[off + i * 4 + 2] << 8) | bytes[off + i * 4 + 3];
+    for (let i = 16; i < 64; i++) { const s0 = rotr(W[i - 15], 7) ^ rotr(W[i - 15], 18) ^ (W[i - 15] >>> 3), s1 = rotr(W[i - 2], 17) ^ rotr(W[i - 2], 19) ^ (W[i - 2] >>> 10); W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0; }
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0;
+      const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    [a, b, c, d, e, f, g, h].forEach((v, i) => { H[i] = (H[i] + v) | 0; });
+  }
+  return H.map(v => (v >>> 0).toString(16).padStart(8, "0")).join("");
+}
+export async function hasManagerPin() {
+  const snap = await getDoc(doc(dbFs, "settings", "admin"));
+  return !!(snap.exists() && snap.data().pin_hash);
+}
+export async function checkManagerPin(pin) {
+  const snap = await getDoc(doc(dbFs, "settings", "admin"));
+  return snap.exists() && snap.data().pin_hash === await sha256("vhm-inventory:" + pin);
+}
+export async function setManagerPin(pin) {
+  await setDoc(doc(dbFs, "settings", "admin"), { pin_hash: await sha256("vhm-inventory:" + pin), pin_set_at: serverTimestamp(), pin_set_by: currentUserEmail() }, { merge: true });
+}
+
+// Soft delete / restore for a tag or category: the document stays (deleted: true),
+// so products keep their link and Restore brings everything back as it was.
+export async function setMetaDeleted(kind, id, deleted) {
+  await updateDoc(doc(dbFs, kind === "cat" ? "categories" : "tags", id), {
+    deleted,
+    deleted_at: deleted ? serverTimestamp() : null,
+    deleted_by: deleted ? currentUserEmail() : null,
+  });
 }

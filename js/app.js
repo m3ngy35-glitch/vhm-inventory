@@ -3,16 +3,14 @@
 // inline variant editing, and the modals (product form, category/tag manager).
 // ============================================================================
 
-import { subscribeProducts, listCategories, listTags, archiveProduct, restoreProduct, patchVariant, exportAllData } from "./db.js";
+import { subscribeProducts, listCategories, listTags, archiveProduct, restoreProduct, patchVariant, patchProduct, exportAllData } from "./db.js";
 import { buildSearchIndex, searchProducts, highlight } from "./search.js";
 import { badge, toast, openGallery, escapeHtml, confirmDialog } from "./ui-components.js";
-import { SIZES, LOCATION_FIELDS } from "./constants.js";
+import { SIZES, LOCATION_FIELDS, STORAGE_LOCATIONS, SAMPLE_LOCATIONS } from "./constants.js";
 import { openProductForm } from "./product-form.js";
 import { openProductDetail } from "./product-detail.js";
 import { openCategoryTagManager } from "./category-tag-manager.js";
 import { watchAuth, login, logout } from "./auth.js";
-import { initLiveTab } from "./live-tab.js";
-import { initLocationsTab } from "./locations-tab.js";
 import { initCycleTab, stageChip } from "./cycle-tab.js";
 import { startSizes, onSizes, sizesLoaded, isSizeTerm, stockRows, sizeTotals, hasSizeInStock, stockAgo, sizesError, checkSizes } from "./stock-sizes.js";
 
@@ -47,7 +45,9 @@ const els = {
 };
 
 async function loadMeta() {
-  const [categories, tags] = await Promise.all([listCategories(), listTags()]);
+  const [allCats, allTags] = await Promise.all([listCategories(), listTags()]);
+  // deleted (soft) tags/categories are hidden everywhere until restored
+  const categories = allCats.filter(c => !c.deleted), tags = allTags.filter(t => !t.deleted);
   state.categories = categories;
   state.tags = tags;
   state.categoriesById = Object.fromEntries(categories.map(c => [c.id, c]));
@@ -87,6 +87,10 @@ function splitSizeTerms(raw) {
 }
 
 function renderGrid() {
+  // someone is typing a location on a card: don't wipe the box — redraw when they leave it
+  if (isTypingLoc()) { state.gridDirty = true; return; }
+  state.gridDirty = false;
+  refreshLocLists();
   const { text, sizes } = splitSizeTerms(state.query);
   state.textQuery = text;
   state.sizeTerms = sizes;
@@ -109,6 +113,7 @@ function renderGrid() {
 
   els.grid.innerHTML = results.map(p => renderProductCard(p)).join("");
   wireCardEvents(results);
+  wireLocInputs();
 }
 
 // Short descriptions just print in full — nothing to compact. A long one
@@ -155,14 +160,14 @@ function renderProductCard(p) {
   return `
     <div class="product-card" data-id="${p.id}">
       <div class="card-image" data-id="${p.id}">
-        ${cover ? `<img src="${cover}" alt="${escapeHtml(p.name)}" />` : `<div class="no-image">No image</div>`}
+        ${cover ? `<img src="${cover}" alt="${escapeHtml(p.name)}" loading="lazy" decoding="async" />` : `<div class="no-image">No image</div>`}
         ${priceLabel ? `<span class="price-tag">${priceLabel}</span>` : ""}
         ${p.images?.length > 1 ? `<span class="image-count">${p.images.length} photos</span>` : ""}
       </div>
       <div class="card-locations">
         <!-- green chip = sample, yellow chip = stock location (the colours staff know) -->
-        <span class="loc-chip loc-chip-storage" title="Sample location (display piece)">👕 ${p[LOCATION_FIELDS.sample] ? highlight(p[LOCATION_FIELDS.sample], state.textQuery ?? state.query) : "—"}</span>
-        <span class="loc-chip loc-chip-sample" title="Storage location (actual stock)">📦 ${p[LOCATION_FIELDS.stock] ? highlight(p[LOCATION_FIELDS.stock], state.textQuery ?? state.query) : "—"}</span>
+        ${locInput(p, "sample")}
+        ${locInput(p, "stock")}
         ${stageChip(p.cycle_stage, p.cycle_at)}
       </div>
       ${renderSizeChips(p)}
@@ -204,6 +209,92 @@ function renderProductCard(p) {
       </div>
     </div>
   `;
+}
+
+// ---------- Locations: edit right on the card ----------
+// Tap the chip and type — it saves by itself (1 s after you stop typing, on Enter,
+// or when you leave the box). Enter also jumps to the same box on the next card,
+// so a whole shelf can be typed in one go. Esc puts the saved value back.
+// Every change shows an Undo. Clearing a location only saves on Enter / leaving.
+function locInput(p, which) {
+  const field = LOCATION_FIELDS[which], v = p[field] || "";
+  const q = (state.textQuery ?? state.query ?? "").trim().toLowerCase();
+  const hit = q && v && v.toLowerCase().includes(q);
+  return `<label class="loc-chip ${which === "sample" ? "loc-chip-storage" : "loc-chip-sample"} loc-edit${hit ? " loc-hit" : ""}" title="${which === "sample" ? "Sample location (display piece)" : "Storage location (actual stock)"} — type to change">${which === "sample" ? "👕" : "📦"}<input class="loc-input" data-pid="${p.id}" data-which="${which}" data-saved="${escapeHtml(v)}" value="${escapeHtml(v)}" placeholder="—" size="${Math.max(2, v.length + 1)}" list="dl-loc-${which}" autocomplete="off" spellcheck="false" enterkeyhint="next" /></label>`;
+}
+const LOC_DEBOUNCE_MS = 1000;
+function cleanLocValue(which, raw) {
+  const t = (raw || "").replace(/\s+/g, " ").trim();
+  return which === "stock" ? t.toUpperCase() : t;          // stock bins are saved in capitals: b23 → B23
+}
+async function saveLoc(input, { force } = {}) {
+  clearTimeout(input._t);
+  const which = input.dataset.which, field = LOCATION_FIELDS[which], pid = input.dataset.pid;
+  const val = cleanLocValue(which, input.value), old = input.dataset.saved || "";
+  if (val === old) { input.value = old; return; }
+  if (!val && !force) return;                               // a cleared box only saves on Enter / leaving
+  input.dataset.saved = val;                                 // so a second trigger doesn't save twice
+  input.value = val;
+  const chip = input.closest(".loc-edit"); chip?.classList.add("loc-saving");
+  try {
+    await patchProduct(pid, { [field]: val });
+    chip?.classList.remove("loc-saving"); chip?.classList.add("loc-saved"); setTimeout(() => chip?.classList.remove("loc-saved"), 900);
+    const p = state.allProducts.find(x => x.id === pid);
+    undoToast(`${p?.master_code || ""} ${which === "sample" ? "👕" : "📦"} ${old || "—"} → ${val || "—"}`, async () => {
+      await patchProduct(pid, { [field]: old });
+      toast(`${p?.master_code || ""} back to ${old || "—"}`);
+    });
+  } catch (e) {
+    input.dataset.saved = old; chip?.classList.remove("loc-saving");
+    toast("Location not saved: " + e.message, "error");
+  }
+}
+function wireLocInputs() {
+  els.grid.querySelectorAll(".loc-input").forEach(input => {
+    input.addEventListener("input", () => {
+      input.size = Math.max(2, input.value.length + 1);
+      clearTimeout(input._t);
+      input._t = setTimeout(() => saveLoc(input), LOC_DEBOUNCE_MS);
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Escape") { clearTimeout(input._t); input.value = input.dataset.saved || ""; input.blur(); return; }
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      saveLoc(input, { force: true });
+      // jump to the same location box on the next (or, with Shift, previous) card
+      const all = [...els.grid.querySelectorAll(`.loc-input[data-which="${input.dataset.which}"]`)];
+      const next = all[all.indexOf(input) + (e.shiftKey ? -1 : 1)];
+      if (next) { next.focus(); next.select(); } else input.blur();
+    });
+    input.addEventListener("focus", () => input.select());
+    input.addEventListener("blur", () => {
+      saveLoc(input, { force: true });
+      // the list was refreshed while typing: redraw once nobody is typing in a location box
+      setTimeout(() => { if (state.gridDirty && !isTypingLoc()) renderGrid(); }, 0);
+    });
+  });
+}
+const isTypingLoc = () => document.activeElement?.classList?.contains("loc-input") && els.grid.contains(document.activeElement);
+// autocomplete lists: every location already used + the usual bins / spots
+function refreshLocLists() {
+  const fill = (id, values) => {
+    let dl = document.getElementById(id);
+    if (!dl) { dl = document.createElement("datalist"); dl.id = id; document.body.appendChild(dl); }
+    const html = [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(v => `<option value="${escapeHtml(v)}"></option>`).join("");
+    if (dl._html !== html) { dl.innerHTML = html; dl._html = html; }
+  };
+  fill("dl-loc-stock", [...STORAGE_LOCATIONS, ...state.products.map(p => p[LOCATION_FIELDS.stock])]);
+  fill("dl-loc-sample", [...SAMPLE_LOCATIONS, ...state.products.map(p => p[LOCATION_FIELDS.sample])]);
+}
+let undoTimer = null;
+function undoToast(message, onUndo) {
+  let el = document.getElementById("undo-toast");
+  if (!el) { el = document.createElement("div"); el.id = "undo-toast"; el.className = "undo-toast"; document.body.appendChild(el); }
+  el.innerHTML = `<span></span><button type="button">Undo · ដកវិញ</button>`;
+  el.querySelector("span").textContent = message;
+  el.querySelector("button").onclick = async () => { el.classList.remove("show"); try { await onUndo(); } catch (e) { toast("Undo failed: " + e.message, "error"); } };
+  el.classList.add("show");
+  clearTimeout(undoTimer); undoTimer = setTimeout(() => el.classList.remove("show"), 6000);
 }
 
 // Sizes in stock (Vrich Sale page remain + stock not in the sale yet).
@@ -337,7 +428,7 @@ function wireToolbar() {
     openProductForm({ product: null, categories: state.categories, tags: state.tags, onSaved: () => {} });
   };
   els.manageBtn.onclick = () => {
-    openCategoryTagManager({ onChanged: async () => { await loadMeta(); rebuildIndex(); renderGrid(); } });
+    openCategoryTagManager({ getProducts: () => state.allProducts, onChanged: async () => { await loadMeta(); rebuildIndex(); renderGrid(); } });
   };
   document.getElementById("btn-deleted").onclick = openRecentlyDeleted;
   document.getElementById("btn-backup").onclick = downloadBackup;
@@ -427,60 +518,29 @@ async function downloadBackup() {
   }
 }
 
-let liveTabInitialized = false;
-let unsubscribeLiveTab = null;
-let locTabInitialized = false;
-let unsubscribeLocTab = null;
 let cycleTabInitialized = false;
 let unsubscribeCycleTab = null;
 // tabs that reuse the Products tab's live product list instead of opening their own Firestore listener
 const productWatchers = new Set();
 function wireNav() {
   const navProducts = document.getElementById("nav-products");
-  const navLive = document.getElementById("nav-live");
-  const navLoc = document.getElementById("nav-loc");
   const navCycle = document.getElementById("nav-cycle");
   const cycleView = document.getElementById("cycle-view");
   const productsView = document.getElementById("products-view");
-  const liveView = document.getElementById("live-view");
-  const locView = document.getElementById("loc-view");
   const toolbar = document.getElementById("products-toolbar");
   const toolbarActions = document.getElementById("products-toolbar-actions");
 
   // one view at a time; the products toolbar only belongs to the Products view
   function show(which) {
     navProducts.classList.toggle("active", which === "products");
-    navLive.classList.toggle("active", which === "live");
-    navLoc.classList.toggle("active", which === "loc");
     navCycle.classList.toggle("active", which === "cycle");
     cycleView.hidden = which !== "cycle";
     productsView.hidden = which !== "products";
-    liveView.hidden = which !== "live";
-    locView.hidden = which !== "loc";
     toolbar.hidden = which !== "products";
     toolbarActions.hidden = which !== "products";
   }
 
   navProducts.onclick = () => show("products");
-
-  navLive.onclick = () => {
-    show("live");
-    if (!liveTabInitialized) {
-      liveTabInitialized = true;
-      unsubscribeLiveTab = initLiveTab(liveView);
-    }
-  };
-
-  navLoc.onclick = () => {
-    show("loc");
-    if (!locTabInitialized) {
-      locTabInitialized = true;
-      unsubscribeLocTab = initLocationsTab(locView, {
-        getProducts: () => state.allProducts,
-        onProducts: fn => { productWatchers.add(fn); return () => productWatchers.delete(fn); },
-      });
-    } else locView.querySelector("#loc-input")?.focus();
-  };
 
   navCycle.onclick = () => {
     show("cycle");
@@ -523,17 +583,7 @@ async function startApp() {
 
 function showLogin() {
   unsubscribeProducts?.();
-  // Otherwise the Live tab's own Firestore listener keeps running in the
-  // background after logout, and — since liveTabInitialized would stay
-  // true — never gets set up again on the next login either.
-  unsubscribeLiveTab?.();
-  unsubscribeLiveTab = null;
-  liveTabInitialized = false;
-  unsubscribeLocTab?.();
-  unsubscribeLocTab = null;
-  locTabInitialized = false;
-  const locView = document.getElementById("loc-view");
-  if (locView) locView.innerHTML = "";
+  // stop the 📍 Scan tab too, so it is set up fresh on the next sign-in
   unsubscribeCycleTab?.();
   unsubscribeCycleTab = null;
   cycleTabInitialized = false;

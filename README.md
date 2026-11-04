@@ -28,10 +28,9 @@ responsibility so one part can change without risking another:
 | `js/ui-components.js` | Color badges, toasts, the full-screen photo gallery |
 | `js/app.js` | Main page: search bar, filters, product grid, inline quick-edit |
 | `js/stock-map.js` | 🔌 Reads the PokPok ↔ Vrich map from VHM Scan Verify (its project, read-only) so PokPok labels work |
-| `js/locations-tab.js` | 📍 Locations tab: scan a product, then a location barcode → saves its storage or sample location |
 | `js/stock-sizes.js` | 📏 Sizes in stock from Vrich (size chips on cards, size search) |
 | `tools/copy-stock-bookmarklet.src.js` | The staff Copy Stock bookmarklet (phone relay + sizes snapshot) — build with `node tools/build-bookmarklet.js` |
-| `js/cycle-tab.js` | 🔄 Cycle tab: logs every Stock → Sample → Live Room → Stock move by scan |
+| `js/cycle-tab.js` | 📍 Scan tab: the sample cycle (Sample ⇄ Live Room, Stock), shelf locations, labels — replaced the old Live, Locations and Cycle tabs |
 
 If you want to add a feature later, you almost always only touch one file.
 
@@ -89,31 +88,33 @@ small server. That's a bigger commitment (a server to maintain, database
 backups, deployments) so it's worth doing only once this lighter version
 is actually being used day to day and hits a real limit.
 
-## 📍 Locations tab (scan product → scan location)
+## 📍 Scan tab (one tab for everything you scan)
 
-1. Choose **📦 Storage location** or **👕 Sample location** at the top.
-2. Scan the product: its master code (E366), a POS / alternate code, or a
-   PokPok label (P0003955). PokPok labels use the PokPok ↔ Vrich map, which
-   loads by itself from VHM Scan Verify (the source — its upload page
-   publishes it after every PokPok / Vrich upload). A map file can still be
-   opened by hand at the bottom of the tab when there is no internet.
-3. Scan the location barcode (B23). It is saved in the same field the
-   product card and the Edit Product form show for that location. If the
-   code already has a different location there, the app asks "B23 is saved —
-   replace with A5?" — nothing is replaced unless staff tap Replace.
+The old **Live**, **📍 Locations** and **🔄 Cycle** tabs all did the same thing: scan a
+product, then maybe a place. They are now one tab, **📍 Scan**. Pick a station once
+(tap it, or scan its printed station barcode):
 
-**Which field holds what:** staff have always typed the actual stock place
-(e.g. B23) into the field stored as `sample_location`, and the sample/display
-place into `storage_location`. The screens follow that data (see
-`LOCATION_FIELDS` in `js/constants.js`) — nothing was moved or rewritten.
+| Station | Scan | What it saves |
+|---|---|---|
+| 👕 Sample | product → container (S3) | moved into Sample + its 👕 sample location |
+| 🎥 Live Room | product | moved into the Live Room (+ "bring out next" suggestions) |
+| 📦 Stock | product | moved to Stock as a replacement (sample container full) |
+| ➡ Next step | product | Sample ⇄ Live, Stock → Sample |
+| 🏷 Set shelf | product → shelf (B23) | the 📦 stock shelf. A different saved shelf is only replaced after tapping **Replace** |
 
-- **📌 Same location for the next items:** scan a location once, then every
-  product scanned is saved straight to it — for filling one shelf.
-- A label number used by several products (e.g. P0003963) asks which one
-  is in your hand.
-- **Undo** on each line of "This session" puts the old location back.
-- **🖨 Print location labels** makes Code 128 barcodes for A1–A14 (or any
-  list you type) to stick on the shelves.
+- **📌 Same location for the next items:** scan a container or shelf once, then only products.
+- **🖨 Station labels** and **🖨 Location labels** print the barcodes to stick up.
+- A label used by several products (e.g. P0003963) asks which one is in your hand.
+- **Undo** works on every line of "This session".
+- **Bring out next** (from the old Live tab): after a piece goes into the Live Room, it lists pieces
+  waiting in 👕 Sample with the same category and a shared tag, used least first.
+- **⏰** on the board marks pieces in the Live Room for 7+ days (`ROTATION_DAYS` in `js/cycle-tab.js`).
+- The old Live tab's per-variant "Shown / Stored" status is no longer used. The cycle stage on the
+  product replaces it, and old values are left in the data untouched.
+
+**Which field holds what:** staff have always typed the actual stock place (e.g. B23) into the
+field stored as `sample_location`, and the sample/display place into `storage_location`. The
+screens follow that data (see `LOCATION_FIELDS` in `js/constants.js`); nothing was moved or rewritten.
 
 ## Firestore reads (kept low on purpose)
 
@@ -124,7 +125,7 @@ place into `storage_location`. The screens follow that data (see
   listener. Every product write sets `updated_at` (archive/restore too) —
   keep it that way in any new write, or other devices won't see the change
   until the weekly full read.
-- **📍 Locations tab:** no reads of its own — 1 write per save.
+- **📍 Scan tab:** no reads of its own. 1 write per shelf save, 2 per cycle move.
 
 ## 🔌 Connection to VHM Scan Verify (the source)
 
@@ -138,7 +139,7 @@ opened (version check), 1–2 more only when the map changed; the map is kept on
 the device. An unknown label triggers one extra check, so a brand-new code
 works as soon as the manager has uploaded the lists.
 
-## 🔄 Cycle tab (Sample ⇄ Live Room, Stock when the sample container is full)
+## The sample cycle in the 📍 Scan tab (Sample ⇄ Live Room, Stock when the sample container is full)
 
 Logs every move of a sample piece by scanning:
 
@@ -159,8 +160,7 @@ Logs every move of a sample piece by scanning:
    puts it back). **📌 Same sample container:** scan the container once, then only the products.
    A real product code always counts as a product, so scanning another product while it waits
    for a container just switches to that product.
-   A 👕 Sample scan in the 📍 Locations tab counts as the same move (it still asks before
-   replacing a saved location there).
+   (Shelf locations use 🏷 Set shelf instead.)
 
 Checks: if a code is already in that stage, nothing is logged and a warning beep plays.
 A scanner double beep (the same code within 4 s) is ignored. **Undo** removes the newest move of a code.
@@ -216,3 +216,30 @@ Staff use it exactly as before. The phone relay part (Quick Reply, Live Log) sen
 the same text to the same `stock_relay_<NAME>` document as the old bookmarklet; this was
 checked by running both on the same page. After changing the source, run
 `node tools/build-bookmarklet.js` to rebuild both files.
+
+## ✏️ Editing locations right on the card
+
+Tap the 👕 or 📦 chip on a product card and type. There is no Save button:
+- It saves 1 second after you stop typing, on **Enter**, or when you leave the box.
+- **Enter** also jumps to the same box on the next card, so you can type a whole shelf in a row.
+  **Shift+Enter** goes back to the previous card.
+- **Esc** puts the saved value back.
+- 📦 stock places are saved in capitals (b23 → B23).
+- Suggestions come from every location already in use.
+- Each change shows an **Undo** at the bottom for 6 seconds.
+- Clearing a box saves only on Enter or when you leave the box, never by itself.
+- Updates from other devices wait until you finish typing, so the box is never wiped mid-typing.
+
+## 🏷 Categories & Tags (safe editing)
+
+- **Rename:** tap the name, type, then press Enter or leave the box. The tag keeps its id, so
+  every product keeps it and shows the new name.
+- **Colour:** tap the colour square.
+- **No duplicates:** "Polo", "polo " and "POLO" count as the same name.
+- Each tag shows how many products use it, and there's a search box for long tag lists.
+- **Delete** asks for the **manager PIN**. The first time, you set the PIN (4+ digits).
+  Change it with "🔑 Change manager PIN", which needs the old PIN.
+- Delete is a soft delete. The tag moves to **🗑 Deleted** and products keep their link
+  (editing a product doesn't drop it). **Restore** brings it back on every product.
+- The PIN is stored only as a hash in `settings/admin`. It stops accidental deletes by staff;
+  it isn't a security wall.

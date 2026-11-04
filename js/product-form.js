@@ -41,6 +41,7 @@ export function openProductForm({ product, categories, tags, onSaved }) {
           <label>Category
             <select id="f-category">
               ${categories.map(c => `<option value="${c.id}" ${c.id === state.category_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+              ${state.category_id && !categories.some(c => c.id === state.category_id) ? `<option value="${state.category_id}" selected>(deleted category — keep)</option>` : ""}
             </select>
           </label>
         </div>
@@ -230,7 +231,9 @@ export function openProductForm({ product, categories, tags, onSaved }) {
         name,
         description: overlay.querySelector("#f-description").value.trim(),
         category_id: overlay.querySelector("#f-category").value,
-        tag_ids: [...overlay.querySelectorAll("#f-tags input:checked")].map(el => el.value),
+        // checked tags + any tag this product has that isn't shown (a deleted one), so Restore brings it back
+        tag_ids: [...new Set([...overlay.querySelectorAll("#f-tags input:checked")].map(el => el.value)
+          .concat(state.tag_ids.filter(id => !tags.some(t => t.id === id))))],
         [LOCATION_FIELDS.stock]: overlay.querySelector("#f-loc-stock").value.trim(),
         [LOCATION_FIELDS.sample]: overlay.querySelector("#f-loc-sample").value.trim(),
         variants: finalVariants,
