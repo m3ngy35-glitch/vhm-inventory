@@ -30,6 +30,7 @@ const SCAN_CONFIG = {
 };
 const APP_NAME = "vhm-scan-map";
 const CHECK_EVERY_MS = 5 * 60 * 1000;      // re-check the version doc at most every 5 minutes
+const FORCE_MIN_MS = 20 * 1000;            // a forced re-check (unknown label) at most this often
 
 const norm = s => (s || "").toString().replace(/[​⁠﻿­]/g, "").trim().toUpperCase();
 const kv = {
@@ -100,7 +101,10 @@ export function loadStockMap(force) {
   busy = (async () => {
     try {
       if (!MAP) { const c = await kv.get("map"); if (c && Array.isArray(c.items)) adopt(c, c.ver ? "online" : "file"); }
-      if (force || Date.now() - lastCheck > CHECK_EVERY_MS) { lastCheck = Date.now(); await fetchOnline(); lastError = null; }
+      // forced checks (an unknown label was scanned) at most every 20 s: a run of unknown scans
+      // is one read, not one read per scan
+      const since = Date.now() - lastCheck;
+      if ((force && since > FORCE_MIN_MS) || since > CHECK_EVERY_MS) { lastCheck = Date.now(); await fetchOnline(); lastError = null; }
     } catch (e) { lastError = explain(e); console.warn("Stock map: could not check VHM Scan for a newer map —", e.code || "", e.message || e); }
     finally { busy = null; }
     return MAP;

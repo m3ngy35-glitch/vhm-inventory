@@ -30,6 +30,8 @@ responsibility so one part can change without risking another:
 | `js/stock-map.js` | 🔌 Reads the PokPok ↔ Vrich map from VHM Scan Verify (its project, read-only) so PokPok labels work |
 | `js/stock-sizes.js` | 📏 Sizes in stock from Vrich (size chips on cards, size search) |
 | `tools/copy-stock-bookmarklet.src.js` | The staff Copy Stock bookmarklet (phone relay + sizes snapshot) — build with `node tools/build-bookmarklet.js` |
+| `js/dashboard-tab.js` | 📊 Dashboard tab: pull out sold-out samples, broken size runs, what to put on live, stock by size, best sellers, runs out soon, live effect |
+| `js/dash-history.js` | Reads the daily stock history (`kv/vhm_sizes_day:<date>`) and live sessions (`kv/live_session:*`) once per open, kept on the device |
 | `js/cycle-tab.js` | 📍 Scan tab: the sample cycle (Sample ⇄ Live Room, Stock), shelf locations, labels — replaced the old Live, Locations and Cycle tabs |
 
 If you want to add a feature later, you almost always only touch one file.
@@ -88,29 +90,28 @@ small server. That's a bigger commitment (a server to maintain, database
 backups, deployments) so it's worth doing only once this lighter version
 is actually being used day to day and hits a real limit.
 
-## 📍 Scan tab (one tab for everything you scan)
+## 📍 Scan tab — the sample workflow
 
-The old **Live**, **📍 Locations** and **🔄 Cycle** tabs all did the same thing: scan a
-product, then maybe a place. They are now one tab, **📍 Scan**. Pick a station once
-(tap it, or scan its printed station barcode):
+1. **Before the live:** take the pieces out of their sample containers. No scan.
+2. **During the live:** in **VHM Live Log**, press **⏺ Start live** when the stream starts. Every
+   code sent to OBS or copied is counted on that computer (nothing is saved during the live).
+   Press **⏹ End live** (tap twice) when it ends, and **one** record is saved: `kv/live_last` +
+   `kv/live_session:<date_time>` in vhm-catalog. If the page closes or End is forgotten, the list
+   is kept and the bar offers **End & send now** next time.
+3. **After the live:** open **📍 Scan**. The **🎥 Last live** box lists every code shown: ⏳ still out
+   (with its last container), ✓ put back (with the new container), ? not in VHM Inventory.
+   With **👕 Put back**, scan the product, then its container (S3). 📌 = one container for many products.
+   Putting a shown code back logs Live → Sample and adds 1 to its "times live".
+4. **More:** **📦 To Stock (box full)** puts the piece in Stock as a replacement and shows its shelf.
+   **🏷 Set shelf** sets the product's stock shelf (product → shelf; it asks Replace / Keep
+   if a different one is saved).
 
-| Station | Scan | What it saves |
-|---|---|---|
-| 👕 Sample | product → container (S3) | moved into Sample + its 👕 sample location |
-| 🎥 Live Room | product | moved into the Live Room (+ "bring out next" suggestions) |
-| 📦 Stock | product | moved to Stock as a replacement (sample container full) |
-| ➡ Next step | product | Sample ⇄ Live, Stock → Sample |
-| 🏷 Set shelf | product → shelf (B23) | the 📦 stock shelf. A different saved shelf is only replaced after tapping **Replace** |
-
-- **📌 Same location for the next items:** scan a container or shelf once, then only products.
-- **🖨 Station labels** and **🖨 Location labels** print the barcodes to stick up.
-- A label used by several products (e.g. P0003963) asks which one is in your hand.
-- **Undo** works on every line of "This session".
-- **Bring out next** (from the old Live tab): after a piece goes into the Live Room, it lists pieces
-  waiting in 👕 Sample with the same category and a shared tag, used least first.
-- **⏰** on the board marks pieces in the Live Room for 7+ days (`ROTATION_DAYS` in `js/cycle-tab.js`).
-- The old Live tab's per-variant "Shown / Stored" status is no longer used. The cycle stage on the
-  product replaces it, and old values are left in the data untouched.
+- The board shows Sample / Live Room (shown, not back yet) / Stock. ⏰ marks pieces out 7+ days.
+- The Live Room and Next-step scans were removed; Live Log replaces them. Scanning an old LIVE
+  or NEXT station label just says so.
+- Cost: Live Log makes 2 writes per live. VHM Inventory makes 1 read when the Scan tab opens and
+  every 5 min while it's on screen, plus the same 2 writes per put-back as before.
+- **Upload `live.html` to the vhm-catalogv2 repo** for the Start / End live bar.
 
 **Which field holds what:** staff have always typed the actual stock place (e.g. B23) into the
 field stored as `sample_location`, and the sample/display place into `storage_location`. The

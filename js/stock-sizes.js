@@ -21,7 +21,7 @@ const LS = "vhminv_sizes_v1";
 const CHECK_MS = 5 * 60 * 1000;
 export const SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "2XL", "XXL", "3XL", "XXXL", "4XL", "5XL", "6XL", "F", "FS", "FREE", "FREESIZE"];
 const SIZE_RE = /^(XXS|XS|S|M|L|XL|XXL|XXXL|[2-6]XL|\d{2})$/i;
-const normSize = s => { s = String(s || "").trim().toUpperCase(); return s === "XXL" ? "2XL" : s === "XXXL" ? "3XL" : s; };
+export const normSize = s => { s = String(s || "").trim().toUpperCase(); return s === "XXL" ? "2XL" : s === "XXXL" ? "3XL" : s; };
 const norm = s => (s || "").toString().replace(/[​⁠﻿­]/g, "").trim().toUpperCase();
 
 let snap = null;            // { hash, at, byCode: Map(code → rows), byBase: Map(base → rows) }
@@ -48,7 +48,7 @@ function build(hash, at, body) {
   return { hash, at, byCode, byBase };
 }
 
-async function gunzip64(b64) {
+export async function gunzip64(b64) {
   const bin = atob(b64), u8 = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   const s = new Blob([u8]).stream().pipeThrough(new DecompressionStream("gzip"));
@@ -102,12 +102,16 @@ export function stockRows(product) {
   return snap.byCode.get(code) || snap.byBase.get(code) || null;
 }
 
+// the whole current snapshot (every Vrich code, matched to VHM or not) — for the 📊 Dashboard
+export const sizesSnapshot = () => snap;
+// sort rank for a size: S M L … then waist 28 29 30 …
+export const sizeRank = s => { const i = SIZE_ORDER.indexOf(s); return i >= 0 ? i : /^\d+$/.test(s) ? 100 + +s : 500; };
+
 // { size → total remain } in a sensible order (S M L … then 28 29 30 …)
 export function sizeTotals(rows) {
   const t = new Map();
   (rows || []).forEach(r => { const k = r.size || "—"; t.set(k, (t.get(k) || 0) + r.qty); });
-  const rank = s => { const i = SIZE_ORDER.indexOf(s); return i >= 0 ? i : /^\d+$/.test(s) ? 100 + +s : 500; };
-  return [...t.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
+  return [...t.entries()].sort((a, b) => sizeRank(a[0]) - sizeRank(b[0]));
 }
 
 export function hasSizeInStock(product, sizes) {

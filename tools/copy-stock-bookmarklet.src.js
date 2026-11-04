@@ -117,9 +117,21 @@
               if (!r.ok) throw new Error(r.status);
               localStorage.setItem('vhm_sizes_hash', hash); localStorage.setItem('vhm_sizes_at', String(Date.now()));
               toast('📏 VHM sizes updated (' + codes.length + ')', '#2563eb', 64);
+              return saveDay(z, meta);
             });
         });
       }).catch(function (e) { console.warn('VHM sizes not saved', e); });
+  }
+  // Daily history for the VHM Inventory 📊 Dashboard: the FIRST snapshot of each day is
+  // also kept as kv/vhm_sizes_day:<YYYY-MM-DD> (never overwritten: "only if it doesn't
+  // exist yet"). Each browser tries once a day → about 1 write a day in total.
+  function saveDay(z, meta) {
+    var d = new Date(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    var day = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+    if (localStorage.getItem('vhm_sizes_day') === day) return;
+    var fields = Object.assign({ data: { stringValue: z }, day: { stringValue: day } }, meta);
+    return fetch(API + 'vhm_sizes_day:' + day + KEY + '&currentDocument.exists=false', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields: fields }) })
+      .then(function (r) { if (r.ok || r.status === 400 || r.status === 409) localStorage.setItem('vhm_sizes_day', day); });
   }
   function gzip64(text) {
     var s = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));

@@ -12,6 +12,7 @@ import { openProductDetail } from "./product-detail.js";
 import { openCategoryTagManager } from "./category-tag-manager.js";
 import { watchAuth, login, logout } from "./auth.js";
 import { initCycleTab, stageChip } from "./cycle-tab.js";
+import { initDashboardTab } from "./dashboard-tab.js";
 import { startSizes, onSizes, sizesLoaded, isSizeTerm, stockRows, sizeTotals, hasSizeInStock, stockAgo, sizesError, checkSizes } from "./stock-sizes.js";
 
 const state = {
@@ -381,14 +382,20 @@ function wireCardEvents(results) {
   // Edit Product form), not per variant, so they're not part of this table.
   document.querySelectorAll(".inline-pos, .inline-stock, .inline-price").forEach(input => {
     input.addEventListener("keydown", e => { if (e.key === "Enter") input.blur(); });
+    // the value as shown when the box was drawn — leaving the box without changing it saves nothing
+    // (before, every click or Tab through these boxes was a save: 1 read + 1 write, plus 1 read on every other device)
+    input.dataset.saved = input.value;
     input.addEventListener("blur", async () => {
       const pid = input.dataset.pid, idx = +input.dataset.idx;
-      let patch;
-      if (input.classList.contains("inline-stock")) patch = { stock_quantity: Number(input.value) || 0 };
-      else if (input.classList.contains("inline-price")) patch = { price: Number(input.value) || 0 };
-      else patch = { pos_code: input.value.trim() };
+      let patch, now;
+      if (input.classList.contains("inline-stock")) { now = String(Number(input.value) || 0); patch = { stock_quantity: Number(now) }; }
+      else if (input.classList.contains("inline-price")) { now = String(Number(input.value) || 0); patch = { price: Number(now) }; }
+      else { now = input.value.trim(); patch = { pos_code: now }; }
+      const was = input.classList.contains("inline-pos") ? (input.dataset.saved || "").trim() : String(Number(input.dataset.saved) || 0);
+      if (now === was) return;
       try {
         await patchVariant(pid, idx, patch);
+        input.dataset.saved = now;
         toast("Variant updated");
       } catch (e) {
         toast("Update failed: " + e.message, "error");
@@ -520,12 +527,15 @@ async function downloadBackup() {
 
 let cycleTabInitialized = false;
 let unsubscribeCycleTab = null;
+let dashTab = null;            // the 📊 Dashboard, set up the first time it is opened
 // tabs that reuse the Products tab's live product list instead of opening their own Firestore listener
 const productWatchers = new Set();
 function wireNav() {
   const navProducts = document.getElementById("nav-products");
   const navCycle = document.getElementById("nav-cycle");
   const cycleView = document.getElementById("cycle-view");
+  const navDash = document.getElementById("nav-dash");
+  const dashView = document.getElementById("dash-view");
   const productsView = document.getElementById("products-view");
   const toolbar = document.getElementById("products-toolbar");
   const toolbarActions = document.getElementById("products-toolbar-actions");
@@ -535,6 +545,8 @@ function wireNav() {
     navProducts.classList.toggle("active", which === "products");
     navCycle.classList.toggle("active", which === "cycle");
     cycleView.hidden = which !== "cycle";
+    navDash.classList.toggle("active", which === "dash");
+    dashView.hidden = which !== "dash";
     productsView.hidden = which !== "products";
     toolbar.hidden = which !== "products";
     toolbarActions.hidden = which !== "products";
@@ -551,6 +563,22 @@ function wireNav() {
         onProducts: fn => { productWatchers.add(fn); return () => productWatchers.delete(fn); },
       });
     } else cycleView.querySelector("#cy-input")?.focus();
+  };
+
+  navDash.onclick = () => {
+    show("dash");
+    if (!dashTab) {
+      dashTab = initDashboardTab(dashView, {
+        getProducts: () => state.allProducts,
+        onProducts: fn => { productWatchers.add(fn); return () => productWatchers.delete(fn); },
+        getCategories: () => state.categories,
+        openProduct: p => openProductDetail(p, {
+          category: state.categoriesById[p.category_id],
+          tags: (p.tag_ids || []).map(id => state.tagsById[id]).filter(Boolean),
+        }),
+      });
+    }
+    dashTab.show();
   };
 }
 
@@ -587,6 +615,10 @@ function showLogin() {
   unsubscribeCycleTab?.();
   unsubscribeCycleTab = null;
   cycleTabInitialized = false;
+  dashTab?.stop();
+  dashTab = null;
+  const dv = document.getElementById("dash-view");
+  if (dv) dv.innerHTML = "";
   const cycleView = document.getElementById("cycle-view");
   if (cycleView) cycleView.innerHTML = "";
   document.getElementById("app-shell").hidden = true;
