@@ -27,6 +27,7 @@ import { checkLive, liveLast, onLive, liveOutOf, liveError } from "./live-feed.j
 import { loadDays, loadLives, DAYS } from "./dash-history.js";
 import { LOCATION_FIELDS } from "./constants.js";
 import { escapeHtml, toast } from "./ui-components.js";
+import { parseGuide, fitRange, normalizeGuideSize, WEIGHT_BANDS, rangeFitsBand } from "./weight-guide.js";
 
 // ---- settings (owner decisions — see the handoff) ----
 // Is the sample piece counted in Vrich stock? true → "0 left" means even the sample
@@ -117,6 +118,8 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
       const t = new Map();
       it.rows.forEach(r => t.set(r.size || "—", (t.get(r.size || "—") || 0) + r.qty));
       it.sizes = [...t.entries()].sort((a, b) => sizeRank(a[0]) - sizeRank(b[0]));
+      it.guide = parseGuide(it.product?.description || "");
+      it.fit = fitRange(it.rows, it.guide);
     }
     const all = [...items.values()];
     const inCat = it => !S.cat || it.product?.category_id === S.cat;
@@ -170,15 +173,21 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
     }
     pull.sort((a, b) => (a.where.kind === "live" ? 0 : 1) - (b.where.kind === "live" ? 0 : 1) || (a.where.since || 0) - (b.where.since || 0));
 
-    // ---- 2 broken size runs ----
+    // ---- 2 broken size runs (weight guide wins; old core-size rule is fallback) ----
     const broken = [];
     for (const it of list) {
       if (!it.total) continue;
-      const sz = new Map(it.sizes);
-      const core = [...CORE_LETTER, ...CORE_WAIST].filter(s => sz.has(s));
-      const gone = core.filter(s => sz.get(s) === 0);
+      const sz = new Map(it.sizes.map(([s, q]) => [normalizeGuideSize(s), q]));
+      const hasMadeList = it.guide.madeSizes.size > 0;
+      const guided = it.guide.weights.size > 0;
+      const expected = hasMadeList
+        ? [...it.guide.madeSizes]
+        : [...CORE_LETTER, ...CORE_WAIST].filter(s => sz.has(s));
+      const gone = expected.filter(s => (sz.get(s) || 0) <= 0);
       if (!gone.length) continue;
-      broken.push({ it, gone, coreLeft: core.length - gone.length, push: it.total <= LEFTOVER_PUSH });
+      // A fully sold-out code belongs in section 1, not in "broken run".
+      if (!expected.some(s => (sz.get(s) || 0) > 0)) continue;
+      broken.push({ it, gone, guided, gaps: guided ? weightGaps(gone, it.guide) : [], push: it.total <= LEFTOVER_PUSH });
     }
     broken.sort((a, b) => b.gone.length - a.gone.length || b.it.total - a.it.total);
 
@@ -195,13 +204,20 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
       if (p.cycle_stage === "LIVE") seen(it.key, new Date(p.cycle_at).getTime());
       const t = lastLive.get(it.key) || 0;
       if (t && Date.now() - t < NOT_LIVE_DAYS * DAY) continue;
-      next.push({ it, p, t, rounds: Number(p.cycle_round) || 0 });
+      next.push({ it, p, t, rounds: Number(p.cycle_round) || 0, fit: it.fit });
     }
     next.sort((a, b) => b.it.total - a.it.total);
 
-    // ---- 4 pieces by size ----
+    // ---- 4 pieces by customer weight; the old size bars remain in a fold-out ----
     const bars = g => g.map(s => [s, list.reduce((a, it) => a + (new Map(it.sizes).get(s) || 0), 0)]);
     const letter = bars(LETTER_BARS), waist = bars(WAIST_BARS);
+    const weight = WEIGHT_BANDS.map(band => [band.label, list.reduce((sum, it) => {
+      if (!it.product || !it.guide.weights.size) return sum;
+      return sum + it.rows.reduce((n, row) => {
+        const range = it.guide.weights.get(normalizeGuideSize(row.size));
+        return n + (range && rangeFitsBand(range, band) ? Math.max(0, Number(row.qty) || 0) : 0);
+      }, 0);
+    }, 0)]);
 
     // ---- 5 best sellers ----
     let best = [], orderedTotal = null, restocks = 0;
@@ -256,7 +272,7 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
     const notInVrich = S.products.filter(p => !matchedIds.has(p.id));
 
     return {
-      snap, list, items, hist, pull, pulledDone, broken, next, historyFrom, letter, waist, best, orderedTotal, restocks,
+      snap, list, items, hist, pull, pulledDone, broken, next, historyFrom, weight, letter, waist, best, orderedTotal, restocks,
       runout: hist ? runout : null, effect, unmatchedVrich, notInVrich, points,
       codesInStock: list.filter(i => i.total > 0).length, pieces: list.reduce((a, i) => a + i.total, 0),
     };
@@ -265,6 +281,18 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
     const L = liveLast(), list = S.lives.slice();
     if (L && L.id && !list.some(x => x.id === L.id)) list.push({ id: L.id, startedAt: L.startedAt, endedAt: L.endedAt, codes: (L.codes || []).map(c => ({ ...c, code: norm(c.code) })) });
     return list.sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt));
+  }
+
+  function weightGaps(sizes, guide) {
+    const ranges = sizes.map(size => ({ size, ...guide.weights.get(size) })).filter(r => Number.isFinite(r.min) && Number.isFinite(r.max))
+      .sort((a, b) => a.min - b.min || a.max - b.max);
+    const groups = [];
+    for (const r of ranges) {
+      const last = groups[groups.length - 1];
+      if (last && r.min <= last.max) { last.max = Math.max(last.max, r.max); last.sizes.push(r.size); }
+      else groups.push({ min: r.min, max: r.max, sizes: [r.size] });
+    }
+    return groups;
   }
 
   // ---------------- screen ----------------
@@ -336,26 +364,27 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
   }
 
   function secBroken(D) {
-    const rows = D.broken.map(({ it, gone, push }) => `<div class="dash-row">
+    const rows = D.broken.map(({ it, gone, guided, gaps, push }) => `<div class="dash-row">
         ${thumb(it.product)}
         <div class="dash-main">
           <div>${codeBtn(it)} <span class="dash-name">${escapeHtml(it.product?.name || "")}</span></div>
           <div class="dash-meta">${chips(it, gone)}</div>
+          ${guided && gaps.length ? `<div class="dash-weight-gap">Nothing left for ${gaps.map(g => `<b>${g.min}–${g.max} kg</b> <span class="muted">(${g.sizes.map(escapeHtml).join(", ")})</span>`).join("; ")} customers · អតិថិជនទម្ងន់នេះអស់ទំហំ</div>` : ""}
           <div class="dash-hint">${push
             ? `Push the ${it.total} leftover${it.total === 1 ? "" : "s"} on live · លក់ដែលសល់នៅ Live <span class="muted">— or restock ${gone.join(", ")}</span>`
             : `Restock ${gone.join(", ")} · បន្ថែមស្តុក <span class="muted">— ${it.total} pieces left in other sizes</span>`}</div>
         </div>
       </div>`);
-    return section("s2", "Broken size runs", "ទំហំសំខាន់អស់", `Core sizes (${CORE_LETTER.join(" / ")}, or waist ${CORE_WAIST[0]}–${CORE_WAIST[CORE_WAIST.length - 1]}) at 0 while other sizes are left.`, rows, "No broken size runs ✓");
+    return section("s2", "Broken size runs", "ទំហំសំខាន់អស់", `Uses each product's weight guide and full made-size list; a size missing from Vrich counts as 0. Products without a readable guide fall back to core sizes (${CORE_LETTER.join(" / ")} or waist ${CORE_WAIST[0]}–${CORE_WAIST[CORE_WAIST.length - 1]}).`, rows, "No broken size runs ✓");
   }
 
   function secNext(D) {
-    const rows = D.next.map(({ it, p, t, rounds }) => `<div class="dash-row">
+    const rows = D.next.map(({ it, p, t, rounds, fit }) => `<div class="dash-row">
         ${thumb(p)}
         <div class="dash-main">
           <div>${codeBtn(it)} <span class="dash-name">${escapeHtml(p.name || "")}</span></div>
           <div class="dash-meta"><b>${it.total}</b> <span class="muted">pieces</span> · ${t ? `last live <b>${Math.floor((Date.now() - t) / DAY)} days ago</b>` : rounds ? `<span class="muted">live ×${rounds}, date not recorded</span>` : `<b>never live</b>`}${p[LOCATION_FIELDS.sample] ? ` · 👕 ${escapeHtml(p[LOCATION_FIELDS.sample])}` : ""}</div>
-          <div class="dash-meta">${chips(it)}</div>
+          <div class="dash-meta">${chips(it)}${fit ? ` <span class="dash-fit">fits ${fit.min}–${fit.max} kg · សម ${fit.min}–${fit.max} គីឡូ</span>` : ""}</div>
         </div>
       </div>`);
     const since = D.historyFrom ? `Live history since ${shortDate(D.historyFrom)} (VHM Live Log ⏹ End live).` : "No live history yet — it starts with the next ⏹ End live in VHM Live Log.";
@@ -363,18 +392,23 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
   }
 
   function secBars(D) {
-    const group = (title, data) => {
+    const group = (title, data, weightLabels = false) => {
       const max = Math.max(1, ...data.map(d => d[1]));
       if (!data.some(d => d[1])) return "";
       return `<div class="dash-bars-group"><div class="dash-bars-title">${title}</div>${data.map(([s, n]) => {
         const low = n < max * 0.3;
-        return `<div class="dash-bar-row" title="${escapeHtml(s)}: ${n} pieces left${low ? " — low" : ""}"><span class="dash-bar-lab">${escapeHtml(s)}</span><span class="dash-bar-track"><span class="dash-bar ${low ? "dash-bar-low" : ""}" style="width:${Math.max(n ? 1.5 : 0, n / max * 100)}%"></span></span><span class="dash-bar-val">${fmt(n)}${low ? ` <span class="dash-low">low</span>` : ""}</span></div>`;
+        return `<div class="dash-bar-row" title="${escapeHtml(s)}: ${n} pieces left${low ? " — low" : ""}"><span class="dash-bar-lab${weightLabels ? " dash-bar-lab-weight" : ""}">${escapeHtml(s)}</span><span class="dash-bar-track"><span class="dash-bar ${low ? "dash-bar-low" : ""}" style="width:${Math.max(n ? 1.5 : 0, n / max * 100)}%"></span></span><span class="dash-bar-val">${fmt(n)}${low ? ` <span class="dash-low">low</span>` : ""}</span></div>`;
       }).join("")}</div>`;
     };
-    const body = group("Shirts & letter sizes · អាវ", D.letter) + group("Pants · waist · ខោ", D.waist);
-    return `<section class="dash-sec" id="dash-s4"><h3>Pieces left by size <span class="km">· ចំនួនសល់តាមទំហំ</span></h3>
-      ${body || `<p class="muted dash-empty">No sized stock in this category.</p>`}
-      <p class="muted dash-sub">Orange = under 30% of the biggest size in the group.</p></section>`;
+    const weightBody = group("Customer weight · គីឡូ", D.weight, true);
+    const sizeBody = group("Shirts & letter sizes · អាវ", D.letter) + group("Pants · waist · ខោ", D.waist);
+    return `<section class="dash-sec" id="dash-s4"><h3>Pieces that fit each weight band <span class="km">· ចំនួនសល់តាមគីឡូ</span></h3>
+      ${weightBody || `<p class="muted dash-empty">No readable weight guides for stock in this category.</p>`}
+      <p class="muted dash-sub">Calculated from each product's own guide. A piece spanning two bands appears in both.</p>
+      <details class="dash-done dash-size-fold"><summary>Pieces left by size · ចំនួនសល់តាមទំហំ</summary>
+        ${sizeBody || `<p class="muted dash-empty">No sized stock in this category.</p>`}
+        <p class="muted dash-sub">Orange = under 30% of the biggest size in the group.</p>
+      </details></section>`;
   }
 
   function needHistory(D, what) {

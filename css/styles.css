@@ -653,6 +653,7 @@ button.dash-code:hover { color: var(--primary); text-decoration: underline; }
 .dash-bars-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
 .dash-bar-row { display: flex; align-items: center; gap: 8px; min-height: 24px; font-size: 13px; }
 .dash-bar-lab { width: 34px; font-weight: 600; text-align: right; flex: 0 0 auto; }
+.dash-bar-lab-weight { width: 68px; }
 .dash-bar-lab-w { width: 140px; text-align: left; font-weight: 500; }
 .dash-bar-track { flex: 1; height: 12px; display: block; position: relative; }
 .dash-bar-track::before { content: ""; position: absolute; inset: 5px 0; background: #eef0f3; border-radius: 1px; }
@@ -662,6 +663,11 @@ button.dash-code:hover { color: var(--primary); text-decoration: underline; }
 .dash-bar-val { min-width: 64px; font-variant-numeric: tabular-nums; }
 .dash-low { font-size: 11px; color: #c2410c; font-weight: 600; }
 .dash-bar-inline { flex: 0 0 90px; }
+.dash-weight-gap { margin-top: 4px; color: #9a3412; font-size: 13px; }
+.dash-fit { display: inline-block; margin-left: 6px; padding: 2px 7px; border-radius: 999px; background: #ecfdf5; color: #047857; font-weight: 600; }
+.dash-size-fold { margin-top: 12px; }
+.dash-size-fold > summary { cursor: pointer; font-weight: 600; }
+.dash-size-fold .dash-bars-group:first-of-type { margin-top: 10px; }
 .dash-verdict { margin: 8px 0 0; font-size: 14px; }
 .dash-um-list { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
 .dash-um { font-family: monospace; font-size: 12px; background: #f3f4f6; border-radius: 4px; padding: 1px 6px; }

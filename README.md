@@ -31,6 +31,7 @@ responsibility so one part can change without risking another:
 | `js/stock-sizes.js` | 📏 Sizes in stock from Vrich (size chips on cards, size search) |
 | `tools/copy-stock-bookmarklet.src.js` | The staff Copy Stock bookmarklet (phone relay + sizes snapshot) — build with `node tools/build-bookmarklet.js` |
 | `js/dashboard-tab.js` | 📊 Dashboard tab: pull out sold-out samples, broken size runs, what to put on live, stock by size, best sellers, runs out soon, live effect |
+| `js/weight-guide.js` | Parses product-description size/weight guides for dashboard gaps, weight bands and live fit ranges |
 | `js/dash-history.js` | Reads the daily stock history (`kv/vhm_sizes_day:<date>`) and live sessions (`kv/live_session:*`) once per open, kept on the device |
 | `js/cycle-tab.js` | 📍 Scan tab: the sample cycle (Sample ⇄ Live Room, Stock), shelf locations, labels — replaced the old Live, Locations and Cycle tabs |
 
