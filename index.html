@@ -33,7 +33,7 @@
   <button id="nav-cycle" class="btn btn-secondary nav-btn">🔄 Cycle</button>
   <div id="products-toolbar" class="products-toolbar">
     <div class="search-wrap">
-      <input id="search-input" type="text" placeholder="Search master code, POS code, name, description, tags, location..." />
+      <input id="search-input" type="text" placeholder="Search code, name, location… or a size in stock: M, 2XL, 32" />
       <button type="button" id="search-clear" class="search-clear" title="Clear search" hidden>&times;</button>
     </div>
     <button id="btn-filters" type="button" class="btn btn-secondary filters-toggle">Filters</button>
@@ -62,6 +62,7 @@
 <main>
   <div id="products-view">
     <div class="toolbar-row">
+      <span id="sizes-stamp" class="muted sizes-stamp"></span>
       <span id="result-count" class="muted"></span>
     </div>
     <div id="product-grid"></div>

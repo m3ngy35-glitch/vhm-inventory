@@ -320,7 +320,7 @@ export async function deleteProductImage(path) {
 //                          so every device sees it through the normal product sync
 //                          without any extra listener or read)
 // Reads happen only when someone opens a code's history or loads a day's log.
-export async function logCycleMove(product, move) {
+export async function logCycleMove(product, move, extraPatch = {}) {
   const batch = writeBatch(dbFs);
   const logRef = doc(collection(dbFs, "cycle_log"));
   const by = currentUserEmail();
@@ -329,6 +329,7 @@ export async function logCycleMove(product, move) {
     cycle_stage: move.to,
     cycle_at: new Date().toISOString(),
     cycle_round: move.round,
+    ...extraPatch,                         // e.g. the sample container location scanned with a move to Sample
     updated_at: serverTimestamp(),
     updated_by: by,
   });
@@ -341,6 +342,7 @@ export async function undoCycleMove(logId, productId, prev) {
   const batch = writeBatch(dbFs);
   batch.delete(doc(dbFs, "cycle_log", logId));
   batch.update(doc(dbFs, "products", productId), {
+    ...prev,                               // every field the move changed, as it was before
     cycle_stage: prev.cycle_stage ?? null,
     cycle_at: prev.cycle_at ?? null,
     cycle_round: prev.cycle_round ?? 0,

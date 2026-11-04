@@ -29,6 +29,8 @@ responsibility so one part can change without risking another:
 | `js/app.js` | Main page: search bar, filters, product grid, inline quick-edit |
 | `js/stock-map.js` | 🔌 Reads the PokPok ↔ Vrich map from VHM Scan Verify (its project, read-only) so PokPok labels work |
 | `js/locations-tab.js` | 📍 Locations tab: scan a product, then a location barcode → saves its storage or sample location |
+| `js/stock-sizes.js` | 📏 Sizes in stock from Vrich (size chips on cards, size search) |
+| `tools/copy-stock-bookmarklet.src.js` | The staff Copy Stock bookmarklet (phone relay + sizes snapshot) — build with `node tools/build-bookmarklet.js` |
 | `js/cycle-tab.js` | 🔄 Cycle tab: logs every Stock → Sample → Live Room → Stock move by scan |
 
 If you want to add a feature later, you almost always only touch one file.
@@ -150,7 +152,15 @@ Logs every move of a sample piece by scanning:
    **➡ Next step** mode: each scan flips Sample ⇄ Live; a code in Stock goes to Sample.
 2. **Scan each product** as it arrives: master code, POS / alternate code, or PokPok label.
    Each scan logs one move. A move to Stock is logged with reason "sample full" and shows the
-   📦 stock place (e.g. B23); a move to Sample shows the 👕 sample spot.
+   📦 stock place (e.g. B23).
+3. **Going to 👕 Sample = putting it in a sample container**, so it is 2 scans: the product,
+   then the container's location barcode (e.g. S3). That saves "now in Sample" and the
+   👕 sample location on the product in one go (the old container shows as "was S1", and Undo
+   puts it back). **📌 Same sample container:** scan the container once, then only the products.
+   A real product code always counts as a product, so scanning another product while it waits
+   for a container just switches to that product.
+   A 👕 Sample scan in the 📍 Locations tab counts as the same move (it still asks before
+   replacing a saved location there).
 
 Checks: if a code is already in that stage, nothing is logged and a warning beep plays.
 A scanner double beep (the same code within 4 s) is ignored. **Undo** removes the newest move of a code.
@@ -162,7 +172,47 @@ A scanner double beep (the same code within 4 s) is ignored. **Undo** removes th
 - The product card also shows a chip with the current stage and time (e.g. 🎥 Live Room · 2h 5m).
 
 Data: `cycle_log` gets one doc per move (from, to, times live, reason, time in the previous
-stage, scanned code, size/colour if a POS code was scanned, who, when). The product gets
+stage, sample container location, scanned code, size/colour if a POS code was scanned, who, when). The product gets
 `cycle_stage`, `cycle_at` and `cycle_round` (= times live).
 Cost: each scan is 2 writes in one batch, with no reads. Reads happen only when you open a
 history or a day log. No new Firestore index or rule is needed.
+
+## 📏 Sizes in stock (from Vrich)
+
+Every product card shows which sizes are in stock, e.g. `M 2 · L 1 · ~~XL~~`. Green chips
+are in stock (with the number left), grey crossed-out chips are sold out, and "by colour"
+opens the colour × size list. The card shows "In stock (Vrich)" with the total, and the
+top of the list shows the stock time (e.g. 📏 Stock sizes 14:05, 3 min ago).
+
+**Search by size:** a search word that is a size means "has that size in stock":
+`M`, `2XL`, `32`, `polo m`, `l xl` (any of them). The Size filter works the same way.
+Pants waists count from 26 to 46, so other numbers stay normal search words.
+
+**Where the numbers come from:** the staff **Copy Stock** bookmarklet on the Vrich Sale
+page. Clicking it still sends the visible lines to the staff member's phone exactly as
+before, and it also builds a compact snapshot of today's sale:
+- remain = quantity − orders. An order counts as soon as the customer orders, paid or not,
+  because that piece is reserved for them.
+- plus the stock not added to the sale yet (`/productStock/list`).
+- code → colour, size, remain only. No cost and no price.
+- Old pants whose waist is in the code (`JC29`, `AA32`, description "ខោ") are read as
+  product `JC` / `AA`, size 29 / 32. A VHM product saved as `JC` gets all of them;
+  one saved as `JC29` gets only that one.
+
+It is saved to the vhm-catalog project (`kv/vhm_sizes` + the tiny `kv/vhm_sizes_meta`)
+only when it is today's date, the latest round, the full list is loaded, the stock
+changed, and this browser hasn't saved it in the last 2 minutes.
+
+**Firestore cost:** the phone relay is 1 write per click, as before. The snapshot is
+2 writes, and only when the stock changed. VHM Inventory reads 1 small doc on open and
+every 5 minutes, plus 1 more only when the stock changed. The snapshot (~20–40 KB) is kept
+on the device. Nothing is added to vhm-data.
+
+**Installing the new bookmarklet:** open `tools/install-copy-stock.html` (on GitHub Pages:
+`<your VHM Inventory link>/tools/install-copy-stock.html`) on each staff computer, drag the
+green **📋 Copy Stock** button to the bookmarks bar, and delete the old one. If dragging
+doesn't work, the page has a "Copy code" button to paste into the old bookmark's URL.
+Staff use it exactly as before. The phone relay part (Quick Reply, Live Log) sends exactly
+the same text to the same `stock_relay_<NAME>` document as the old bookmarklet; this was
+checked by running both on the same page. After changing the source, run
+`node tools/build-bookmarklet.js` to rebuild both files.

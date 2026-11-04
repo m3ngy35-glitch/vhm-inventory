@@ -519,3 +519,21 @@ input[type=text], input[type=number], textarea {
   .cy-col { max-height: none; }
 }
 .cy-side { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+
+/* ---------- 📏 sizes in stock (from Vrich) ---------- */
+.size-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px 0; }
+.size-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 6px; border: 1px solid transparent; }
+.size-chip b { font-size: 10px; font-weight: 700; opacity: .8; }
+.size-in { background: #dcfce7; color: #14532d; border-color: #86efac; }
+.size-out { background: #f3f4f6; color: #9ca3af; text-decoration: line-through; }
+.size-want.size-in { background: #16a34a; color: #fff; border-color: #16a34a; }
+.size-want.size-out { border-color: #fca5a5; }
+.size-none { font-size: 12px; color: #9ca3af; }
+.size-colours { padding: 2px 12px 0; font-size: 12px; }
+.size-colours summary { color: var(--muted); cursor: pointer; }
+.size-colours div { padding: 2px 0; }
+.size-colour { font-weight: 700; }
+.size-in-txt { color: #15803d; font-weight: 600; }
+.size-out-txt { color: #9ca3af; text-decoration: line-through; }
+.sizes-stamp { font-size: 12px; }
+.size-err { color: #b45309; }

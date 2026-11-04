@@ -23,7 +23,8 @@
 // not this one — see stock-map.js.
 // ============================================================================
 
-import { patchProduct } from "./db.js";
+import { patchProduct, logCycleMove, undoCycleMove } from "./db.js";
+import { buildCycleMove } from "./cycle-tab.js";
 import { findVariantByCode } from "./search.js";
 import { toast, escapeHtml } from "./ui-components.js";
 import { STORAGE_LOCATIONS, SAMPLE_LOCATIONS, LOCATION_FIELDS } from "./constants.js";
@@ -177,12 +178,18 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
     const field = FIELD[state.mode], from = product[field] || "";
     state.pending = null;
     if (state.lock) state.lockedLoc = loc;
-    if (norm(from) === norm(loc)) { beepSaved(); state.log.unshift({ product, field, from, to: loc, t: new Date(), same: true }); renderAll(); return; }
+    // 👕 Sample mode = the piece is being put in a sample container → also log the 🔄 Cycle move to Sample
+    const toSample = state.mode === "sample" && product.cycle_stage !== "SAMPLE";
+    if (norm(from) === norm(loc) && !toSample) { beepSaved(); state.log.unshift({ product, field, from, to: loc, t: new Date(), same: true }); renderAll(); return; }
     // a location is already saved: never replace it without asking
-    if (from && !confirmed) { state.confirm = { product, loc, from, field }; beepStep(); buzz([60, 40, 60]); renderAll(); return; }
+    if (from && !confirmed && norm(from) !== norm(loc)) { state.confirm = { product, loc, from, field }; beepStep(); buzz([60, 40, 60]); renderAll(); return; }
     try {
-      await patchProduct(product.id, { [field]: loc });
-      state.log.unshift({ product, field, from, to: loc, t: new Date() });
+      let cycle = null;
+      if (toSample) {
+        const { mv, patch, prev } = buildCycleMove(product, "SAMPLE", { scanned: product.master_code, station: "LOCATIONS", location: loc });
+        cycle = { logId: await logCycleMove(product, mv, patch), prev };
+      } else await patchProduct(product.id, { [field]: loc });
+      state.log.unshift({ product, field, from, to: loc, t: new Date(), cycle });
       beepSaved(); buzz(40);
       toast(`${product.master_code} → ${loc}`);
     } catch (e) {
@@ -274,7 +281,7 @@ export function initLocationsTab(container, { getProducts, onProducts }) {
       </div>`).join("")}</div>`;
     el.querySelectorAll(".loc-undo").forEach(b => b.onclick = async () => {
       const x = state.log[+b.dataset.i]; b.disabled = true;
-      try { await patchProduct(x.product.id, { [x.field]: x.from || "" }); x.undone = true; toast(`${x.product.master_code} back to ${x.from || "—"}`); renderLog(); }
+      try { if (x.cycle) await undoCycleMove(x.cycle.logId, x.product.id, x.cycle.prev); else await patchProduct(x.product.id, { [x.field]: x.from || "" }); x.undone = true; toast(`${x.product.master_code} back to ${x.from || "—"}`); renderLog(); }
       catch (e) { toast("Undo failed: " + e.message, "error"); b.disabled = false; }
     });
   }

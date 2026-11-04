@@ -14,6 +14,7 @@ import { watchAuth, login, logout } from "./auth.js";
 import { initLiveTab } from "./live-tab.js";
 import { initLocationsTab } from "./locations-tab.js";
 import { initCycleTab, stageChip } from "./cycle-tab.js";
+import { startSizes, onSizes, sizesLoaded, isSizeTerm, stockRows, sizeTotals, hasSizeInStock, stockAgo, sizesError, checkSizes } from "./stock-sizes.js";
 
 const state = {
   products: [],
@@ -73,13 +74,33 @@ function rebuildIndex() {
   state.searchIndex = buildSearchIndex(state.products, state.categoriesById, state.tagsById);
 }
 
+// With Vrich stock sizes loaded, a search word that is a size (S, M, XL, 2XL, 32 …)
+// means "has that size IN STOCK" instead of a text match: "polo m", "32", "m l".
+// Several sizes = any of them. The Size filter works the same way.
+function splitSizeTerms(raw) {
+  if (!sizesLoaded()) return { text: raw, sizes: [] };
+  const trailing = /\s$/.test(raw || "");
+  const words = (raw || "").trim().split(/\s+/).filter(Boolean);
+  const sizes = words.filter(isSizeTerm).map(w => w.toUpperCase());
+  const text = words.filter(w => !isSizeTerm(w)).join(" ");
+  return { text: text + (trailing && text ? " " : ""), sizes };
+}
+
 function renderGrid() {
-  const results = searchProducts(state.searchIndex, state.query, {
+  const { text, sizes } = splitSizeTerms(state.query);
+  state.textQuery = text;
+  state.sizeTerms = sizes;
+  const filterSize = state.filters.size || null;
+  let results = searchProducts(state.searchIndex, text, {
     categoryId: state.filters.categoryId || null,
     tagId: state.filters.tagId || null,
-    size: state.filters.size || null,
+    size: sizesLoaded() ? null : filterSize,
   });
-  els.resultCount.textContent = `${results.length} product${results.length === 1 ? "" : "s"}`;
+  if (sizes.length) results = results.filter(p => hasSizeInStock(p, sizes));
+  if (filterSize && sizesLoaded()) results = results.filter(p => hasSizeInStock(p, [filterSize]));
+  const inStockTxt = [...sizes, ...(filterSize && sizesLoaded() ? [filterSize] : [])];
+  els.resultCount.textContent = `${results.length} product${results.length === 1 ? "" : "s"}` + (inStockTxt.length ? ` with ${inStockTxt.join(" / ")} in stock` : "");
+  renderSizesStamp();
 
   if (!results.length) {
     els.grid.innerHTML = `<p class="muted">No products match your search.</p>`;
@@ -140,19 +161,25 @@ function renderProductCard(p) {
       </div>
       <div class="card-locations">
         <!-- green chip = sample, yellow chip = stock location (the colours staff know) -->
-        <span class="loc-chip loc-chip-storage" title="Sample location (display piece)">👕 ${p[LOCATION_FIELDS.sample] ? highlight(p[LOCATION_FIELDS.sample], state.query) : "—"}</span>
-        <span class="loc-chip loc-chip-sample" title="Storage location (actual stock)">📦 ${p[LOCATION_FIELDS.stock] ? highlight(p[LOCATION_FIELDS.stock], state.query) : "—"}</span>
+        <span class="loc-chip loc-chip-storage" title="Sample location (display piece)">👕 ${p[LOCATION_FIELDS.sample] ? highlight(p[LOCATION_FIELDS.sample], state.textQuery ?? state.query) : "—"}</span>
+        <span class="loc-chip loc-chip-sample" title="Storage location (actual stock)">📦 ${p[LOCATION_FIELDS.stock] ? highlight(p[LOCATION_FIELDS.stock], state.textQuery ?? state.query) : "—"}</span>
         ${stageChip(p.cycle_stage, p.cycle_at)}
       </div>
+      ${renderSizeChips(p)}
       <div class="card-body">
         <div class="card-top-row">
-          <span class="master-code master-code-clickable" data-id="${p.id}" title="Tap to view details">${highlight(p.master_code, state.query)}</span>
+          <span class="master-code master-code-clickable" data-id="${p.id}" title="Tap to view details">${highlight(p.master_code, state.textQuery ?? state.query)}</span>
           ${category ? badge(category.name, category.color_code) : ""}
         </div>
-        <h3 class="card-title">${highlight(p.name, state.query)}</h3>
+        <h3 class="card-title">${highlight(p.name, state.textQuery ?? state.query)}</h3>
         <div class="card-tags">${tags.map(t => badge(t.name, t.color_code)).join(" ")}</div>
         ${renderDescription(p.description)}
-        <div class="card-stock ${lowStock ? "stock-zero" : ""}">Total stock: ${totalStock}</div>
+        ${(() => {                     // Vrich stock wins when it is loaded; the typed variant stock is only a fallback
+          const vr = sizesLoaded() ? stockRows(p) : null;
+          if (vr) { const t = vr.reduce((a, r) => a + r.qty, 0); return `<div class="card-stock ${t ? "" : "stock-zero"}">In stock (Vrich): ${t}</div>`; }
+          if (sizesLoaded()) return "";
+          return `<div class="card-stock ${lowStock ? "stock-zero" : ""}">Total stock: ${totalStock}</div>`;
+        })()}
         <details class="variant-inline">
           <summary>${(p.variants || []).length} variant${(p.variants || []).length === 1 ? "" : "s"} — quick edit</summary>
           <table class="variant-inline-table">
@@ -177,6 +204,34 @@ function renderProductCard(p) {
       </div>
     </div>
   `;
+}
+
+// Sizes in stock (Vrich Sale page remain + stock not in the sale yet).
+function renderSizeChips(p) {
+  if (!sizesLoaded()) return "";
+  const rows = stockRows(p);
+  if (!rows) return `<div class="size-row"><span class="size-none">No Vrich stock · អស់ស្តុក</span></div>`;
+  const want = new Set([...(state.sizeTerms || []), ...(state.filters.size ? [state.filters.size.toUpperCase()] : [])]);
+  const totals = sizeTotals(rows);
+  const chips = totals.map(([size, q]) => `<span class="size-chip ${q > 0 ? "size-in" : "size-out"}${want.has(size) ? " size-want" : ""}" title="${q} left">${escapeHtml(size)}${q > 0 ? `<b>${q}</b>` : ""}</span>`).join("");
+  const colours = [...new Set(rows.map(r => r.colour))];
+  const byColour = colours.length > 1 || (colours[0] && totals.length > 1)
+    ? `<details class="size-colours"><summary>by colour · តាមពណ៌</summary>${colours.map(c => {
+        const rs = sizeTotals(rows.filter(r => r.colour === c));
+        return `<div><span class="size-colour">${escapeHtml(c || "—")}</span> ${rs.map(([s, q]) => `<span class="${q > 0 ? "size-in-txt" : "size-out-txt"}">${escapeHtml(s)}${q > 0 ? " " + q : ""}</span>`).join(" · ")}</div>`;
+      }).join("")}</details>` : "";
+  return `<div class="size-row">${chips}</div>${byColour}`;
+}
+
+function renderSizesStamp() {
+  const el = document.getElementById("sizes-stamp");
+  if (!el) return;
+  const err = sizesError();
+  el.innerHTML = sizesLoaded()
+    ? `📏 Stock sizes ${escapeHtml(stockAgo())}${err ? ` · <span class="size-err">${escapeHtml(err)}</span>` : ""} · <a href="#" id="sizes-refresh">check</a>`
+    : err ? `📏 <span class="size-err">${escapeHtml(err)}</span>` : "";
+  const a = el.querySelector("#sizes-refresh");
+  if (a) a.onclick = e => { e.preventDefault(); checkSizes().then(() => { renderGrid(); toast(sizesError() || "Stock sizes are up to date"); }); };
 }
 
 function wireCardEvents(results) {
@@ -451,6 +506,8 @@ async function startApp() {
       unsubscribeProducts?.();
       await logout();
     };
+    startSizes();
+    onSizes(() => { if (state.searchIndex.length) renderGrid(); else renderSizesStamp(); });
     unsubscribeProducts = subscribeProducts(products => {
       state.allProducts = products;
       state.products = products.filter(p => !p.deleted);

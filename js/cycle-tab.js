@@ -12,6 +12,11 @@
 //      Or choose "➡ Next step": each scan moves the code one step along the cycle.
 //   2. Scan products — master code (E366), POS / alternate code, or PokPok label
 //      (P0003955, through the VHM Scan map). Every scan = one logged move.
+//      Going to 👕 Sample = putting it in a sample container, so it takes 2 scans:
+//      the product, then the container's location barcode (e.g. S3). That one move
+//      saves both "now in Sample" and the 👕 sample location on the product
+//      (📌 Same container: scan the container once, then just the products).
+//      A Sample-mode scan in the 📍 Locations tab counts as the same move.
 //
 // Checks: scanning a code into the stage it is already in logs nothing (warning
 // beep). A move to Stock is logged with reason "sample_full". The same code scanned twice within
@@ -26,7 +31,7 @@
 import { logCycleMove, undoCycleMove, listCycleLogForProduct, listCycleLogBetween } from "./db.js";
 import { findVariantByCode } from "./search.js";
 import { toast, escapeHtml } from "./ui-components.js";
-import { LOCATION_FIELDS } from "./constants.js";
+import { LOCATION_FIELDS, SAMPLE_LOCATIONS, STORAGE_LOCATIONS } from "./constants.js";
 import { loadStockMap, currentStockMap, codesForNumber } from "./stock-map.js";
 
 export const STAGES = {
@@ -71,6 +76,27 @@ export function ago(isoOrMs) {
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
 }
+// One move of product p to stage `to` — shared by this tab and the 📍 Locations tab.
+// Returns what logCycleMove needs (mv, patch) and what undoCycleMove needs (prev).
+export function buildCycleMove(p, to, { scanned = "", station = "", variant = null, location = "" } = {}) {
+  const from = p.cycle_stage || null;
+  const prevRound = Number(p.cycle_round) || 0;
+  const sampleField = LOCATION_FIELDS.sample;
+  const patch = {}, prev = { cycle_stage: p.cycle_stage ?? null, cycle_at: p.cycle_at ?? null, cycle_round: p.cycle_round ?? 0 };
+  if (to === "SAMPLE" && location) { patch[sampleField] = location; prev[sampleField] = p[sampleField] ?? ""; }
+  const mv = {
+    from, to, scanned, station,
+    round: to === "LIVE" ? prevRound + 1 : prevRound,          // = times this code has gone to the Live Room
+    skipped: false,
+    reason: to === "STOCK" ? "sample_full" : "",
+    location: to === "SAMPLE" ? (location || p[sampleField] || "") : to === "STOCK" ? (p[LOCATION_FIELDS.stock] || "") : "",
+    location_was: to === "SAMPLE" && location ? (p[sampleField] || "") : "",
+    in_from_ms: p.cycle_at ? Date.now() - new Date(p.cycle_at).getTime() : null,   // how long it sat in the previous stage
+    variant: variant ? { size: variant.size || "", color: variant.color_name || "", pos: variant.pos_code || "" } : null,
+  };
+  return { mv, patch, prev };
+}
+const BIN_RE = /^[A-Z]{1,3}-?\d{1,3}$/;
 const hhmm = ms => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 
 export function initCycleTab(container, { getProducts, onProducts }) {
@@ -83,6 +109,9 @@ export function initCycleTab(container, { getProducts, onProducts }) {
     log: [],                               // this session: { logId, product, from, to, prev, t, skipped, undone }
     lastScan: { code: "", t: 0 },
     boardFilter: "",
+    pending: null,                         // { product, scanned, variant } waiting for its sample container
+    lock: lsGet("lock", false),            // 📌 same sample container for the next items
+    lockedLoc: "",
   };
 
   container.innerHTML = `
@@ -97,7 +126,9 @@ export function initCycleTab(container, { getProducts, onProducts }) {
     <div class="scan-box loc-box">
       <div id="cy-step" class="loc-step"></div>
       <input id="cy-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="done" placeholder="Scan product · ស្កេនទំនិញ" />
+      <label class="loc-lock" id="cy-lock-wrap"><input type="checkbox" id="cy-lock" /> 📌 Same sample container for the next items · ប្រអប់គំរូដដែលសម្រាប់ទំនិញបន្ទាប់</label>
       <div class="loc-actions">
+        <button type="button" class="btn btn-secondary" id="cy-cancel">Clear · សម្អាត</button>
         <button type="button" class="btn btn-secondary" id="cy-labels">🖨 Print station labels · ព្រីនស្លាកស្ថានីយ</button>
         <button type="button" class="btn btn-secondary" id="cy-day">📜 Day log · កំណត់ត្រាប្រចាំថ្ងៃ</button>
       </div>
@@ -114,12 +145,16 @@ export function initCycleTab(container, { getProducts, onProducts }) {
   container.querySelectorAll(".cy-stations .live-tab-btn").forEach(b => b.onclick = () => setStation(b.dataset.st));
   input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); const v = input.value; input.value = ""; handleScan(v); } });
   $("#cy-labels").onclick = printStationLabels;
+  $("#cy-lock").checked = state.lock;
+  $("#cy-lock").onchange = e => { state.lock = e.target.checked; lsSet("lock", state.lock); if (!state.lock) state.lockedLoc = ""; renderStep(); input.focus(); };
+  $("#cy-cancel").onclick = () => { state.pending = null; state.pick = null; state.lockedLoc = ""; state.last = null; renderStep(); renderResult(); input.focus(); };
   $("#cy-day").onclick = () => openDayLog();
   $("#cy-filter").oninput = e => { state.boardFilter = norm(e.target.value); renderBoard(); };
 
   function useProducts(products) {
     state.products = (products || []).filter(p => !p.deleted);
     state.byMaster = new Map(state.products.map(p => [norm(p.master_code), p]));
+    if (state.pending) state.pending.product = state.products.find(p => p.id === state.pending.product.id) || state.pending.product;
     renderBoard(); renderResult();
   }
   useProducts(getProducts());
@@ -129,7 +164,7 @@ export function initCycleTab(container, { getProducts, onProducts }) {
   const ticker = setInterval(() => { if (!container.closest("[hidden]")) renderBoard(); }, 60000);
 
   function setStation(st) {
-    state.station = st; lsSet("station", st); state.pick = null;
+    state.station = st; lsSet("station", st); state.pick = null; state.pending = null; state.lockedLoc = "";
     state.lastScan = { code: "", t: 0 };          // a new station = the next scan of the same code is a real move
     renderStations(); renderStep(); input.focus();
   }
@@ -154,6 +189,12 @@ export function initCycleTab(container, { getProducts, onProducts }) {
     if (code === state.lastScan.code && Date.now() - state.lastScan.t < DOUBLE_SCAN_MS) return;
     state.pick = null;
     let found = findProducts(code);
+    const isLoc = BIN_RE.test(code) || SAMPLE_LOCATIONS.map(norm).includes(code) || STORAGE_LOCATIONS.map(norm).includes(code);
+    // waiting for the sample container: a location wins, unless this is clearly another product (then switch to it)
+    // (a real product code always means a product: product codes like R292 look like locations too)
+    if (state.pending && !found.list.length && !/^P\d{5,}$/.test(code)) { const pd = state.pending; state.pending = null; commit(pd.product, "SAMPLE", pd.scanned, pd.variant, code); return; }
+    // 📌 a container scanned first = the container to fill
+    if (!state.pending && !found.list.length && isLoc && state.lock && state.station !== "LIVE" && state.station !== "STOCK") { state.lockedLoc = code; beepStep(); renderStep(); renderResult(); input.focus(); return; }
     if (!found.list.length && !retried) {         // maybe a brand-new PokPok label: check for a newer map once
       const before = currentStockMap() && currentStockMap().ver;
       await loadStockMap(true);
@@ -179,25 +220,28 @@ export function initCycleTab(container, { getProducts, onProducts }) {
       state.last = { kind: "same", product: p, to };
       renderResult(); input.focus(); return;
     }
-    const skipped = false;                       // every move between Sample, Live and Stock is allowed
-    const prevRound = Number(p.cycle_round) || 0;
-    const round = to === "LIVE" ? prevRound + 1 : prevRound;   // = times this code has gone to the Live Room
-    const prev = { cycle_stage: p.cycle_stage ?? null, cycle_at: p.cycle_at ?? null, cycle_round: p.cycle_round ?? 0 };
-    const mv = {
-      from, to, round, skipped, scanned,
-      reason: to === "STOCK" ? "sample_full" : "",
-      station: state.station,
-      in_from_ms: p.cycle_at ? Date.now() - new Date(p.cycle_at).getTime() : null,   // how long it sat in the previous stage
-      variant: variant ? { size: variant.size || "", color: variant.color_name || "", pos: variant.pos_code || "" } : null,
-    };
+    // into Sample = into a sample container: needs its location (unless 📌 is holding one)
+    if (to === "SAMPLE") {
+      if (state.lock && state.lockedLoc) return commit(p, to, scanned, variant, state.lockedLoc);
+      state.pending = { product: p, scanned, variant }; state.last = null;
+      beepStep(); buzz(25); renderStep(); renderResult(); input.focus(); return;
+    }
+    commit(p, to, scanned, variant, "");
+  }
+
+  async function commit(product, to, scanned, variant, location) {
+    const p = state.products.find(x => x.id === product.id) || product;
+    if (location && state.lock) state.lockedLoc = location;
+    const { mv, patch, prev } = buildCycleMove(p, to, { scanned, station: state.station, variant, location });
+    const { from, round, skipped } = mv;
     // show it at once; the save finishes in the background (works offline too — Firestore queues it)
-    const entry = { logId: null, product: p, from, to, prev, t: new Date(), skipped, round, inFor: mv.in_from_ms, saving: true };
+    const entry = { logId: null, product: p, from, to, prev, t: new Date(), skipped, round, inFor: mv.in_from_ms, loc: mv.location, locWas: mv.location_was, saving: true };
     state.log.unshift(entry);
     state.last = { kind: "moved", entry };
     if (skipped) { beepWarn(); buzz([60, 40, 60]); } else { beepOk(); buzz(40); }
     renderResult(); renderLog(); input.focus();
     try {
-      entry.logId = await logCycleMove(p, mv);
+      entry.logId = await logCycleMove(p, mv, patch);
       entry.saving = false;
     } catch (e) {
       entry.saving = false; entry.failed = true;
@@ -221,13 +265,19 @@ export function initCycleTab(container, { getProducts, onProducts }) {
   }
   function renderStep() {
     const st = state.station;
+    $("#cy-lock-wrap").hidden = st === "LIVE" || st === "STOCK";
+    input.placeholder = state.pending ? "Scan container location, e.g. S3 · ស្កេនទីតាំងប្រអប់" : "Scan product · ស្កេនទំនិញ";
+    if (state.pending) { $("#cy-step").innerHTML = `<b>Step 2 · ជំហានទី 2</b> — scan the 👕 sample container location for <b class="loc-big">${escapeHtml(state.pending.product.master_code)}</b> · ស្កេនទីតាំងប្រអប់គំរូ`; return; }
+    if (state.lock && state.lockedLoc && st !== "LIVE" && st !== "STOCK") { $("#cy-step").innerHTML = `📌 Filling container <b class="loc-big">${escapeHtml(state.lockedLoc)}</b> — scan each product going in · ស្កេនទំនិញនីមួយៗ`; return; }
     $("#cy-step").innerHTML = st === "NEXT"
       ? `<b>➡ Next step</b> — each scan flips the code: 👕 Sample ⇄ 🎥 Live (📦 Stock → 👕 Sample) · ស្កេនម្តង = ទៅជំហានបន្ទាប់`
+      : st === "SAMPLE"
+      ? `Station <b class="loc-big">👕 Sample</b> — scan the product, then its container location · ស្កេនទំនិញ បន្ទាប់មកទីតាំងប្រអប់`
       : `Station <b class="loc-big">${STAGES[st].icon} ${STAGES[st].en}</b> — scan each product arriving here · ស្កេនទំនិញដែលមកដល់ ${STAGES[st].km}`;
   }
   function whereToPut(p, stage) {
     if (stage === "STOCK") return `<div>Sample container full → kept in Stock as a replacement · កន្លែងគំរូពេញ ទុកក្នុងស្តុក</div>` + (p[LOCATION_FIELDS.stock] ? `<div>Put at 📦 <b class="loc-big">${escapeHtml(p[LOCATION_FIELDS.stock])}</b> · ដាក់នៅ</div>` : "");
-    if (stage === "SAMPLE" && p[LOCATION_FIELDS.sample]) return `<div>Sample spot 👕 <b class="loc-big">${escapeHtml(p[LOCATION_FIELDS.sample])}</b></div>`;
+    if (stage === "SAMPLE" && p[LOCATION_FIELDS.sample]) return `<div>Sample container 👕 <b class="loc-big">${escapeHtml(p[LOCATION_FIELDS.sample])}</b></div>`;
     return "";
   }
   function card(p, extra) {
@@ -249,6 +299,12 @@ export function initCycleTab(container, { getProducts, onProducts }) {
       el.querySelectorAll(".loc-pick").forEach(b => b.onclick = () => { const p = state.pick.products[+b.dataset.i], code = state.pick.code; state.pick = null; state.lastScan = { code, t: Date.now() }; move(p, code); });
       return;
     }
+    if (state.pending) {
+      const p = state.pending.product;
+      el.innerHTML = card(p, `${p[LOCATION_FIELDS.sample] ? `<div class="muted">Last container: 👕 ${escapeHtml(p[LOCATION_FIELDS.sample])}</div>` : ""}<div>Now scan the container location · ឥឡូវស្កេនទីតាំងប្រអប់</div>`);
+      el.querySelectorAll(".cy-hist").forEach(a => a.onclick = e => { e.preventDefault(); openHistory(a.dataset.id); });
+      return;
+    }
     const L = state.last;
     if (!L) { el.innerHTML = ""; return; }
     if (L.kind === "same") {
@@ -258,7 +314,7 @@ export function initCycleTab(container, { getProducts, onProducts }) {
       const x = L.entry, p = state.products.find(q => q.id === x.product.id) || x.product, s = STAGES[x.to];
       const fromTxt = x.from ? `${STAGES[x.from].icon} ${STAGES[x.from].en}${x.inFor != null ? ` <span class="muted">(${ago(Date.now() - x.inFor)} there)</span>` : ""} → ` : "";
       const status = x.failed ? `<div class="loc-msg loc-bad" style="margin-top:6px">✗ Not saved — scan again · មិនបានរក្សាទុក</div>` : x.saving ? `<span class="muted">saving…</span>` : "";
-      el.innerHTML = `<div class="loc-msg ${x.failed ? "loc-bad" : x.skipped ? "loc-warn" : "loc-ok"}">${x.failed ? "✗" : x.skipped ? "⚠" : "✓"} <b>${escapeHtml(p.master_code)}</b> ${fromTxt}<b class="loc-big">${s.icon} ${s.en}</b> ${x.round ? `<span class="muted">· 🎥 live ×${x.round}</span>` : ""}${status}</div>` + card(p, whereToPut(p, x.to));
+      el.innerHTML = `<div class="loc-msg ${x.failed ? "loc-bad" : x.skipped ? "loc-warn" : "loc-ok"}">${x.failed ? "✗" : x.skipped ? "⚠" : "✓"} <b>${escapeHtml(p.master_code)}</b> ${fromTxt}<b class="loc-big">${s.icon} ${s.en}${x.to === "SAMPLE" && x.loc ? ` · ${escapeHtml(x.loc)}` : ""}</b>${x.locWas && norm(x.locWas) !== norm(x.loc) ? ` <span class="muted">(was ${escapeHtml(x.locWas)})</span>` : ""} ${x.round ? `<span class="muted">· 🎥 live ×${x.round}</span>` : ""}${status}</div>` + card(p, whereToPut(p, x.to));
     }
     el.querySelectorAll(".cy-hist").forEach(a => a.onclick = e => { e.preventDefault(); openHistory(a.dataset.id); });
   }
@@ -268,7 +324,7 @@ export function initCycleTab(container, { getProducts, onProducts }) {
     el.innerHTML = `<h3 style="margin-top:20px;">This session · វគ្គនេះ (${state.log.length})</h3>
       <div class="loc-log">${state.log.slice(0, 60).map((x, i) => `<div class="loc-log-row${x.skipped ? " cy-row-skip" : ""}">
         <span class="master-code">${escapeHtml(x.product.master_code)}</span>
-        <span>${x.from ? STAGES[x.from].icon + " → " : ""}${STAGES[x.to].icon} <b>${STAGES[x.to].en}</b>${x.skipped ? " ⚠" : ""}</span>
+        <span>${x.from ? STAGES[x.from].icon + " → " : ""}${STAGES[x.to].icon} <b>${STAGES[x.to].en}${x.to === "SAMPLE" && x.loc ? " · " + escapeHtml(x.loc) : ""}</b></span>
         <span class="muted">${hhmm(x.t.getTime())}</span>
         ${x.undone ? `<span class="muted">undone</span>` : x.failed ? `<span class="muted">not saved</span>` : x.saving ? `<span class="muted">saving…</span>` : `<button type="button" class="btn btn-secondary cy-undo" data-i="${i}">Undo · ដកវិញ</button>`}
       </div>`).join("")}</div>`;
@@ -337,7 +393,7 @@ export function initCycleTab(container, { getProducts, onProducts }) {
       ${rows.map(r => `<tr class="${r.skipped ? "cy-row-skip" : ""}">
         <td data-label="Time">${new Date(r.at_ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
         ${withCode ? `<td data-label="Code"><span class="master-code">${escapeHtml(r.master_code)}</span></td>` : ""}
-        <td data-label="Move">${r.from ? STAGES[r.from]?.icon + " → " : ""}${STAGES[r.to]?.icon || ""} ${STAGES[r.to]?.en || escapeHtml(r.to)}${r.skipped ? " ⚠" : ""}</td>
+        <td data-label="Move">${r.from ? STAGES[r.from]?.icon + " → " : ""}${STAGES[r.to]?.icon || ""} ${STAGES[r.to]?.en || escapeHtml(r.to)}${r.location ? " · " + escapeHtml(r.location) : ""}</td>
         <td data-label="Was there">${r.in_from_ms != null ? ago(Date.now() - r.in_from_ms) : "—"}</td>
         <td data-label="Live #">${r.round ?? ""}</td>
         <td data-label="By" class="muted">${escapeHtml((r.by || "").split("@")[0])}</td>
@@ -345,8 +401,8 @@ export function initCycleTab(container, { getProducts, onProducts }) {
   }
   function downloadCsv(rows, day) {
     const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const head = ["time", "code", "from", "to", "minutes_in_previous_stage", "times_live", "reason", "scanned", "size", "color", "by"];
-    const lines = rows.slice().reverse().map(r => [new Date(r.at_ms).toISOString(), r.master_code, r.from || "", r.to, r.in_from_ms != null ? Math.round(r.in_from_ms / 60000) : "", r.round, r.reason || "", r.scanned, r.variant?.size, r.variant?.color, r.by].map(esc).join(","));
+    const head = ["time", "code", "from", "to", "minutes_in_previous_stage", "times_live", "reason", "location", "scanned", "size", "color", "by"];
+    const lines = rows.slice().reverse().map(r => [new Date(r.at_ms).toISOString(), r.master_code, r.from || "", r.to, r.in_from_ms != null ? Math.round(r.in_from_ms / 60000) : "", r.round, r.reason || "", r.location || "", r.scanned, r.variant?.size, r.variant?.color, r.by].map(esc).join(","));
     const blob = new Blob(["﻿" + [head.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `vhm-cycle-log-${day}.csv`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
