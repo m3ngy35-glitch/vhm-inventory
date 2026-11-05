@@ -245,3 +245,5 @@ Tap the 👕 or 📦 chip on a product card and type. There is no Save button:
   (editing a product doesn't drop it). **Restore** brings it back on every product.
 - The PIN is stored only as a hash in `settings/admin`. It stops accidental deletes by staff;
   it isn't a security wall.
+
+ 
