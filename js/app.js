@@ -14,6 +14,8 @@ import { watchAuth, login, logout } from "./auth.js";
 import { initCycleTab, stageChip } from "./cycle-tab.js";
 import { initDashboardTab } from "./dashboard-tab.js";
 import { startSizes, onSizes, sizesLoaded, isSizeTerm, stockRows, sizeTotals, hasSizeInStock, stockAgo, sizesError, checkSizes } from "./stock-sizes.js";
+import { startLiveGuides, onLiveGuides, liveGuideFor } from "./live-guides.js";
+import { structuredGuide, parseGuide, fitRange } from "./weight-guide.js";
 
 const state = {
   products: [],
@@ -147,6 +149,23 @@ function renderDescription(description) {
   `;
 }
 
+function renderWeightRecommendation(p) {
+  const liveGuide = structuredGuide(liveGuideFor(p.master_code));
+  const guide = liveGuide || parseGuide(p.description || "");
+  if (!guide.weights.size) return "";
+  const weights = [...guide.weights.entries()].sort((a, b) => {
+    const order = s => SIZES.indexOf(s) >= 0 ? SIZES.indexOf(s) : /^\d+$/.test(s) ? 100 + Number(s) : 500;
+    return order(a[0]) - order(b[0]);
+  });
+  const rows = sizesLoaded() ? stockRows(p) : null;
+  const fit = rows ? fitRange(rows, guide) : null;
+  return `<div class="card-weight-guide ${liveGuide ? "card-weight-live" : "card-weight-fallback"}">
+    <div class="card-weight-head"><span>⚖️ Weight recommendation · គីឡូ</span><span class="card-weight-source">${liveGuide ? "VHM Live Log" : "Product description"}</span></div>
+    <div class="card-weight-sizes">${weights.map(([size, range]) => `<span><b>${escapeHtml(size)}</b> ${range.min}–${range.max} kg</span>`).join("")}</div>
+    ${fit ? `<div class="card-weight-fit">In-stock sizes fit <b>${fit.min}–${fit.max} kg</b> · ទំហំមានស្តុកសម</div>` : ""}
+  </div>`;
+}
+
 function renderProductCard(p) {
   const category = state.categoriesById[p.category_id];
   const tags = (p.tag_ids || []).map(id => state.tagsById[id]).filter(Boolean);
@@ -179,6 +198,7 @@ function renderProductCard(p) {
         </div>
         <h3 class="card-title">${highlight(p.name, state.textQuery ?? state.query)}</h3>
         <div class="card-tags">${tags.map(t => badge(t.name, t.color_code)).join(" ")}</div>
+        ${renderWeightRecommendation(p)}
         ${renderDescription(p.description)}
         ${(() => {                     // Vrich stock wins when it is loaded; the typed variant stock is only a fallback
           const vr = sizesLoaded() ? stockRows(p) : null;
@@ -583,6 +603,7 @@ function wireNav() {
 }
 
 let unsubscribeProducts = null;
+let unsubscribeLiveGuides = null;
 
 async function startApp() {
   document.getElementById("login-screen").hidden = true;
@@ -596,6 +617,9 @@ async function startApp() {
     };
     startSizes();
     onSizes(() => { if (state.searchIndex.length) renderGrid(); else renderSizesStamp(); });
+    unsubscribeLiveGuides?.();
+    unsubscribeLiveGuides = onLiveGuides(() => { if (state.searchIndex.length) renderGrid(); });
+    startLiveGuides();
     unsubscribeProducts = subscribeProducts(products => {
       state.allProducts = products;
       state.products = products.filter(p => !p.deleted);
@@ -611,6 +635,8 @@ async function startApp() {
 
 function showLogin() {
   unsubscribeProducts?.();
+  unsubscribeLiveGuides?.();
+  unsubscribeLiveGuides = null;
   // stop the 📍 Scan tab too, so it is set up fresh on the next sign-in
   unsubscribeCycleTab?.();
   unsubscribeCycleTab = null;
