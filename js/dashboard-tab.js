@@ -273,8 +273,8 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
       effect.shown += sh; effect.shownN += shN; effect.base += bs; effect.baseN += bsN;
     }
 
-    const unmatchedVrich = all.filter(i => !i.product);
-    const notInVrich = S.products.filter(p => !matchedIds.has(p.id));
+    const unmatchedVrich = all.filter(i => !i.product).sort((a, b) => norm(a.code).localeCompare(norm(b.code)));
+    const notInVrich = S.products.filter(p => !matchedIds.has(p.id)).sort((a, b) => norm(a.master_code).localeCompare(norm(b.master_code)));
 
     return {
       snap, list, items, hist, pull, pulledDone, broken, next, historyFrom, weight, letter, waist, best, orderedTotal, restocks,
@@ -470,16 +470,49 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
 
   function secUnmatched(D) {
     if (!D.unmatchedVrich.length && !D.notInVrich.length) return "";
-    const list = arr => arr.slice(0, 300).map(x => `<span class="dash-um">${escapeHtml(x)}</span>`).join("") + (arr.length > 300 ? ` <span class="muted">+${arr.length - 300}</span>` : "");
+    const list = (arr, key) => {
+      const open = S.open[key], cap = 300;
+      return `<div class="dash-um-list">${arr.slice(0, open ? arr.length : cap).map(x => `<span class="dash-um">${escapeHtml(x)}</span>`).join("")}</div>${arr.length > cap ? `<button type="button" class="btn btn-secondary dash-all" data-all="${key}">${open ? "Show first 300 · បង្ហាញតិច" : `Show all ${arr.length} · បង្ហាញទាំងអស់`}</button>` : ""}`;
+    };
     const unmatchedLabel = i => {
       const sizes = i.sizes.map(([s]) => s).filter(s => s && s !== "—");
       return `${i.code} · ${i.total}${sizes.length ? ` · ${sizes.join("/")}` : ""}`;
     };
     return `<section class="dash-sec" id="dash-s8"><h3>No Vrich match <span class="km">· មិនត្រូវគ្នា</span></h3>
       <p class="muted dash-sub">Not counted anywhere above (never treated as 0 stock).</p>
-      ${D.unmatchedVrich.length ? `<details class="dash-done"><summary>In Vrich, not in VHM Inventory (${D.unmatchedVrich.length} main codes) · មិនមានក្នុង VHM</summary><p class="muted dash-sub">One staff task per main code; waist-size codes are combined. Format: main code · pieces · sizes.</p><div class="dash-um-list">${list(D.unmatchedVrich.map(unmatchedLabel))}</div></details>` : ""}
-      ${D.notInVrich.length ? `<details class="dash-done"><summary>In VHM Inventory, not on today's Vrich sale (${D.notInVrich.length}) · មិនមានក្នុង Vrich</summary><div class="dash-um-list">${list(D.notInVrich.map(p => p.master_code))}</div></details>` : ""}
+      ${D.unmatchedVrich.length ? `<details class="dash-done"><summary>In Vrich, not in VHM Inventory (${D.unmatchedVrich.length} main codes) · មិនមានក្នុង VHM</summary><p class="muted dash-sub">One staff task per main code; waist-size codes are combined. Format: main code · pieces · sizes.</p><div class="dash-um-actions"><button type="button" class="btn btn-primary" data-act="copy-unmatched">Copy all ${D.unmatchedVrich.length} main codes · ចម្លង</button><button type="button" class="btn btn-secondary" data-act="download-unmatched">Download full CSV · ទាញយក</button></div>${list(D.unmatchedVrich.map(unmatchedLabel), "unmatched")}</details>` : ""}
+      ${D.notInVrich.length ? `<details class="dash-done"><summary>In VHM Inventory, not on today's Vrich sale (${D.notInVrich.length}) · មិនមានក្នុង Vrich</summary>${list(D.notInVrich.map(p => p.master_code), "not-in-vrich")}</details>` : ""}
     </section>`;
+  }
+
+  async function copyUnmatched(D) {
+    const text = D.unmatchedVrich.map(i => i.code).join("\n");
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      const area = document.createElement("textarea");
+      area.value = text; area.setAttribute("readonly", ""); area.style.position = "fixed"; area.style.opacity = "0";
+      document.body.appendChild(area); area.select();
+      const copied = document.execCommand("copy"); area.remove();
+      if (!copied) { toast("Could not copy — use Download full CSV"); return; }
+    }
+    toast(`${D.unmatchedVrich.length} main codes copied · បានចម្លង`);
+  }
+
+  function downloadUnmatched(D) {
+    const cell = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const rows = D.unmatchedVrich.map(i => [
+      i.code,
+      i.total,
+      i.sizes.map(([s]) => s).filter(s => s && s !== "—").join(" "),
+      i.vcodes.join(" "),
+    ].map(cell).join(","));
+    const csv = ["main_code,pieces,sizes,vrich_size_codes", ...rows].join("\n");
+    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = `vrich-not-in-vhm-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`${D.unmatchedVrich.length} main codes downloaded · បានទាញយក`);
   }
 
   // ---------------- clicks ----------------
@@ -489,6 +522,8 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
     if (b.dataset.cat !== undefined) { S.cat = b.dataset.cat; lsSet("cat", S.cat); render(); return; }
     if (b.dataset.act === "refresh") return refresh();
     if (b.dataset.act === "more") { S.more = !S.more; render(); return; }
+    if (b.dataset.act === "copy-unmatched") { const D = compute(); if (D) copyUnmatched(D); return; }
+    if (b.dataset.act === "download-unmatched") { const D = compute(); if (D) downloadUnmatched(D); return; }
     if (b.dataset.all) { S.open[b.dataset.all] = !S.open[b.dataset.all]; render(); return; }
     if (b.dataset.pull) {
       const id = b.dataset.pull; S.pulled[id] = new Date().toISOString(); lsSet("pulled", S.pulled); render();

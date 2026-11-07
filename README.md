@@ -205,7 +205,9 @@ before, and it also builds a compact snapshot of today's sale:
 - In the Dashboard's “In Vrich, not in VHM Inventory” staff list, those waist codes
   are grouped into one main-code task (`AA28`, `AA29`, `AA31` → `AA`). The chip keeps
   the combined piece total and size summary. Real numbered codes such as `E100` are
-  not shortened.
+  not shortened. **Copy all main codes** puts the complete one-code-per-line list on
+  the clipboard, **Download full CSV** exports every row (including pieces, sizes and
+  original Vrich codes), and **Show all** expands beyond the first 300 on screen.
 
 It is saved to the vhm-catalog project (`kv/vhm_sizes` + the tiny `kv/vhm_sizes_meta`)
 only when it is today's date, the latest round, the full list is loaded, the stock

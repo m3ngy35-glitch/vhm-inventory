@@ -671,6 +671,8 @@ button.dash-code:hover { color: var(--primary); text-decoration: underline; }
 .dash-verdict { margin: 8px 0 0; font-size: 14px; }
 .dash-um-list { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
 .dash-um { font-family: monospace; font-size: 12px; background: #f3f4f6; border-radius: 4px; padding: 1px 6px; }
+.dash-um-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+.dash-um-actions .btn { min-height: 40px; }
 .dash-more-btn { display: none; }
 
 @media (max-width: 900px) {
