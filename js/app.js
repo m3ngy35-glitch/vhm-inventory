@@ -1,9 +1,9 @@
 // ============================================================================
 // app.js — main entry point. Wires together search, product grid,
-// inline variant editing, and the modals (product form, category/tag manager).
+// product cards, locations, and the modals (product form, category/tag manager).
 // ============================================================================
 
-import { subscribeProducts, listCategories, listTags, archiveProduct, restoreProduct, patchVariant, patchProduct, exportAllData } from "./db.js";
+import { subscribeProducts, listCategories, listTags, archiveProduct, restoreProduct, patchProduct, exportAllData } from "./db.js";
 import { buildSearchIndex, searchProducts, highlight } from "./search.js";
 import { badge, toast, openGallery, escapeHtml, confirmDialog } from "./ui-components.js";
 import { SIZES, LOCATION_FIELDS, STORAGE_LOCATIONS, SAMPLE_LOCATIONS } from "./constants.js";
@@ -119,36 +119,6 @@ function renderGrid() {
   wireLocInputs();
 }
 
-// Short descriptions just print in full — nothing to compact. A long one
-// only takes up a couple of lines by default (as a <summary>, same
-// collapsed-by-default pattern as the variant quick-edit table below it),
-// and clicking it expands to the full text right there on the card.
-// "Short" has to account for LINE count, not just character count — a
-// 5-line weight guide (one size per line) can be well under 100
-// characters total but still too many lines to show uncollapsed without
-// getting clipped, so either going over length OR going over 3 lines
-// triggers the same collapsible treatment.
-const DESC_COMPACT_LEN = 100;
-const DESC_COMPACT_LINES = 3;
-function renderDescription(description) {
-  if (!description) return "";
-  const lineCount = description.split("\n").length;
-  if (description.length <= DESC_COMPACT_LEN && lineCount <= DESC_COMPACT_LINES) {
-    return `<p class="card-description-full muted">${escapeHtml(description)}</p>`;
-  }
-  const preview = description.slice(0, DESC_COMPACT_LEN).trim();
-  return `
-    <details class="desc-inline">
-      <summary class="card-description muted">
-        <span class="desc-preview">${escapeHtml(preview)}&hellip;</span>
-        <span class="desc-toggle-hint desc-hint-more">read more</span>
-        <span class="desc-toggle-hint desc-hint-less">show less</span>
-      </summary>
-      <p class="card-description-full muted">${escapeHtml(description)}</p>
-    </details>
-  `;
-}
-
 function renderWeightRecommendation(p) {
   const liveGuide = structuredGuide(liveGuideFor(p.master_code));
   const guide = liveGuide || parseGuide(p.description || "");
@@ -159,11 +129,15 @@ function renderWeightRecommendation(p) {
   });
   const rows = sizesLoaded() ? stockRows(p) : null;
   const fit = rows ? fitRange(rows, guide) : null;
-  return `<div class="card-weight-guide ${liveGuide ? "card-weight-live" : "card-weight-fallback"}">
-    <div class="card-weight-head"><span>⚖️ Weight recommendation · គីឡូ</span><span class="card-weight-source">${liveGuide ? "VHM Live Log" : "Product description"}</span></div>
+  const allFit = {
+    min: Math.min(...weights.map(([, range]) => range.min)),
+    max: Math.max(...weights.map(([, range]) => range.max)),
+  };
+  const shownFit = fit || allFit;
+  return `<details class="card-weight-guide ${liveGuide ? "card-weight-live" : "card-weight-fallback"}">
+    <summary><span class="card-weight-summary">⚖️ ${fit ? "Fits in-stock sizes" : "Weight guide"} <b>${shownFit.min}–${shownFit.max} kg</b><span class="km"> · សម ${shownFit.min}–${shownFit.max} គីឡូ</span></span><span class="card-weight-source">${liveGuide ? "Live Log" : "Description"}</span><span class="card-weight-open">sizes</span></summary>
     <div class="card-weight-sizes">${weights.map(([size, range]) => `<span><b>${escapeHtml(size)}</b> ${range.min}–${range.max} kg</span>`).join("")}</div>
-    ${fit ? `<div class="card-weight-fit">In-stock sizes fit <b>${fit.min}–${fit.max} kg</b> · ទំហំមានស្តុកសម</div>` : ""}
-  </div>`;
+  </details>`;
 }
 
 function renderProductCard(p) {
@@ -184,13 +158,6 @@ function renderProductCard(p) {
         ${priceLabel ? `<span class="price-tag">${priceLabel}</span>` : ""}
         ${p.images?.length > 1 ? `<span class="image-count">${p.images.length} photos</span>` : ""}
       </div>
-      <div class="card-locations">
-        <!-- green chip = sample, yellow chip = stock location (the colours staff know) -->
-        ${locInput(p, "sample")}
-        ${locInput(p, "stock")}
-        ${stageChip(p.cycle_stage, p.cycle_at)}
-      </div>
-      ${renderSizeChips(p)}
       <div class="card-body">
         <div class="card-top-row">
           <span class="master-code master-code-clickable" data-id="${p.id}" title="Tap to view details">${highlight(p.master_code, state.textQuery ?? state.query)}</span>
@@ -198,34 +165,24 @@ function renderProductCard(p) {
         </div>
         <h3 class="card-title">${highlight(p.name, state.textQuery ?? state.query)}</h3>
         <div class="card-tags">${tags.map(t => badge(t.name, t.color_code)).join(" ")}</div>
+        <div class="card-locations">
+          <!-- green chip = sample, yellow chip = stock location (the colours staff know) -->
+          ${locInput(p, "sample")}
+          ${locInput(p, "stock")}
+          ${stageChip(p.cycle_stage, p.cycle_at)}
+        </div>
+        ${renderSizeChips(p)}
         ${renderWeightRecommendation(p)}
-        ${renderDescription(p.description)}
-        ${(() => {                     // Vrich stock wins when it is loaded; the typed variant stock is only a fallback
-          const vr = sizesLoaded() ? stockRows(p) : null;
-          if (vr) { const t = vr.reduce((a, r) => a + r.qty, 0); return `<div class="card-stock ${t ? "" : "stock-zero"}">In stock (Vrich): ${t}</div>`; }
-          if (sizesLoaded()) return "";
-          return `<div class="card-stock ${lowStock ? "stock-zero" : ""}">Total stock: ${totalStock}</div>`;
-        })()}
-        <details class="variant-inline">
-          <summary>${(p.variants || []).length} variant${(p.variants || []).length === 1 ? "" : "s"} — quick edit</summary>
-          <table class="variant-inline-table">
-            <thead><tr><th>Size</th><th>Color</th><th>POS</th><th>Stock</th><th>Price</th></tr></thead>
-            <tbody>
-              ${(p.variants || []).map((v, i) => `
-                <tr>
-                  <td data-label="Size">${v.size}</td>
-                  <td data-label="Color"><span class="swatch" style="background:${v.color_hex}"></span>${escapeHtml(v.color_name)}</td>
-                  <td data-label="POS"><input class="inline-pos" data-pid="${p.id}" data-idx="${i}" value="${escapeHtml(v.pos_code)}" /></td>
-                  <td data-label="Stock"><input class="inline-stock" type="number" min="0" data-pid="${p.id}" data-idx="${i}" value="${v.stock_quantity}" /></td>
-                  <td data-label="Price"><input class="inline-price" type="number" min="0" step="0.01" data-pid="${p.id}" data-idx="${i}" value="${v.price ?? 0}" /></td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </details>
-        <div class="card-actions">
+        <div class="card-footer">
+          ${!sizesLoaded() ? `<span class="card-stock ${lowStock ? "stock-zero" : ""}">${totalStock} pieces</span>` : ""}
           <button class="btn btn-secondary btn-edit" data-id="${p.id}">Edit</button>
-          <button class="btn btn-danger btn-delete" data-id="${p.id}">Delete</button>
+          <details class="card-menu">
+            <summary aria-label="More actions" title="More actions">•••</summary>
+            <div class="card-menu-pop">
+              <button type="button" class="card-menu-detail" data-id="${p.id}">View details</button>
+              <button type="button" class="btn-delete" data-id="${p.id}">Delete</button>
+            </div>
+          </details>
         </div>
       </div>
     </div>
@@ -322,9 +279,10 @@ function undoToast(message, onUndo) {
 function renderSizeChips(p) {
   if (!sizesLoaded()) return "";
   const rows = stockRows(p);
-  if (!rows) return `<div class="size-row"><span class="size-none">No Vrich stock · អស់ស្តុក</span></div>`;
+  if (!rows) return `<div class="size-stock-line"><div class="size-row"><span class="size-none">No Vrich stock · អស់ស្តុក</span></div></div>`;
   const want = new Set([...(state.sizeTerms || []), ...(state.filters.size ? [state.filters.size.toUpperCase()] : [])]);
   const totals = sizeTotals(rows);
+  const total = rows.reduce((sum, row) => sum + Math.max(0, Number(row.qty) || 0), 0);
   const chips = totals.map(([size, q]) => `<span class="size-chip ${q > 0 ? "size-in" : "size-out"}${want.has(size) ? " size-want" : ""}" title="${q} left">${escapeHtml(size)}${q > 0 ? `<b>${q}</b>` : ""}</span>`).join("");
   const colours = [...new Set(rows.map(r => r.colour))];
   const byColour = colours.length > 1 || (colours[0] && totals.length > 1)
@@ -332,7 +290,7 @@ function renderSizeChips(p) {
         const rs = sizeTotals(rows.filter(r => r.colour === c));
         return `<div><span class="size-colour">${escapeHtml(c || "—")}</span> ${rs.map(([s, q]) => `<span class="${q > 0 ? "size-in-txt" : "size-out-txt"}">${escapeHtml(s)}${q > 0 ? " " + q : ""}</span>`).join(" · ")}</div>`;
       }).join("")}</details>` : "";
-  return `<div class="size-row">${chips}</div>${byColour}`;
+  return `<div class="size-stock-line"><div class="size-row">${chips}</div><span class="size-total" title="Vrich stock">${total} piece${total === 1 ? "" : "s"}</span></div>${byColour}`;
 }
 
 function renderSizesStamp() {
@@ -371,6 +329,16 @@ function wireCardEvents(results) {
     };
   });
 
+  document.querySelectorAll(".card-menu-detail").forEach(btn => {
+    btn.onclick = () => {
+      const p = byId[btn.dataset.id];
+      openProductDetail(p, {
+        category: state.categoriesById[p.category_id],
+        tags: (p.tag_ids || []).map(id => state.tagsById[id]).filter(Boolean),
+      });
+    };
+  });
+
   document.querySelectorAll(".btn-edit").forEach(btn => {
     btn.onclick = () => {
       openProductForm({
@@ -397,31 +365,6 @@ function wireCardEvents(results) {
     };
   });
 
-  // Inline quick-edit: POS code, stock, price — debounced-ish on blur/enter.
-  // Storage/sample location live on the product itself now (set from the
-  // Edit Product form), not per variant, so they're not part of this table.
-  document.querySelectorAll(".inline-pos, .inline-stock, .inline-price").forEach(input => {
-    input.addEventListener("keydown", e => { if (e.key === "Enter") input.blur(); });
-    // the value as shown when the box was drawn — leaving the box without changing it saves nothing
-    // (before, every click or Tab through these boxes was a save: 1 read + 1 write, plus 1 read on every other device)
-    input.dataset.saved = input.value;
-    input.addEventListener("blur", async () => {
-      const pid = input.dataset.pid, idx = +input.dataset.idx;
-      let patch, now;
-      if (input.classList.contains("inline-stock")) { now = String(Number(input.value) || 0); patch = { stock_quantity: Number(now) }; }
-      else if (input.classList.contains("inline-price")) { now = String(Number(input.value) || 0); patch = { price: Number(now) }; }
-      else { now = input.value.trim(); patch = { pos_code: now }; }
-      const was = input.classList.contains("inline-pos") ? (input.dataset.saved || "").trim() : String(Number(input.dataset.saved) || 0);
-      if (now === was) return;
-      try {
-        await patchVariant(pid, idx, patch);
-        input.dataset.saved = now;
-        toast("Variant updated");
-      } catch (e) {
-        toast("Update failed: " + e.message, "error");
-      }
-    });
-  });
 }
 
 function wireToolbar() {

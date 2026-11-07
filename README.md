@@ -188,11 +188,16 @@ are in stock (with the number left), grey crossed-out chips are sold out, and "b
 opens the colour × size list. The card shows "In stock (Vrich)" with the total, and the
 top of the list shows the stock time (e.g. 📏 Stock sizes 14:05, 3 min ago).
 
-The product card also shows **⚖️ Weight recommendation**. The structured size-by-size
-guide from **VHM Live Selling Log** is shown first and labelled with its source. The card
-also combines the sizes currently in Vrich stock into one “In-stock sizes fit 45–70 kg”
-recommendation. If Live Log has no structured guide for that code, the older product
-description parser remains as a clearly labelled fallback.
+The product card uses a scan-first layout: photo, code/name, locations, size stock, weight,
+then a small action footer. Long descriptions and the inline variant table no longer compete
+on the card face; tap the code or **View details** for the full information, and use **Edit**
+for variants. Delete and secondary actions live in the three-dot menu.
+
+The product card shows one compact **⚖️ Fits in-stock sizes 45–70 kg** line. It uses
+the structured guide from **VHM Live Selling Log** and labels the source. Tap **sizes** to
+expand the size-by-size ranges; they stay folded by default so the guide does not compete
+with the product code, name, tags and stock. If Live Log has no structured guide for that
+code, the older product-description parser remains as a clearly labelled fallback.
 
 **Search by size:** a search word that is a size means "has that size in stock":
 `M`, `2XL`, `32`, `polo m`, `l xl` (any of them). The Size filter works the same way.

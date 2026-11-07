@@ -105,17 +105,18 @@ main { padding: 16px 20px 60px; max-width: 1400px; margin: 0 auto; }
 
 #product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
 }
 
 .product-card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 2px 8px rgba(15,23,42,.05);
 }
 .card-image {
   aspect-ratio: 4/3;
@@ -140,11 +141,11 @@ main { padding: 16px 20px 60px; max-width: 1400px; margin: 0 auto; }
    apart by color alone (green vs. amber) rather than a text label, so the
    value itself (the bin code / display spot) is what's readable at a
    glance instead of a repeated word. */
-.card-locations { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 14px 0; }
+.card-locations { display: flex; gap: 6px; flex-wrap: wrap; }
 .loc-chip { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 20px; border: 1px solid transparent; }
 .loc-chip-storage { background: #dcfce7; color: #14532d; border-color: #86efac; }
 .loc-chip-sample { background: #fef3c7; color: #78350f; border-color: #fcd34d; }
-.card-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.card-body { padding: 12px 14px 14px; display: flex; flex: 1; flex-direction: column; gap: 9px; }
 .card-top-row { display: flex; justify-content: space-between; align-items: center; }
 .master-code { font-family: monospace; font-size: 12px; color: var(--muted); font-weight: 600; }
 .master-code-clickable {
@@ -152,6 +153,7 @@ main { padding: 16px 20px 60px; max-width: 1400px; margin: 0 auto; }
   padding: 4px 2px; margin: -4px -2px; /* bigger tap target than the text itself */
 }
 .master-code-clickable:hover { color: var(--primary); }
+.card-top-row .master-code { font-size: 15px; }
 
 /* ---- Product quick-view popup: photo, tags, price, category and the
    full description together, read-only, same modal on mobile & desktop
@@ -162,22 +164,36 @@ main { padding: 16px 20px 60px; max-width: 1400px; margin: 0 auto; }
 .detail-price-tag { position: static; }
 .detail-title { margin: 0; font-size: 18px; }
 .detail-description { white-space: pre-line; font-size: 14px; line-height: 1.5; margin: 0; }
-.card-title { margin: 0; font-size: 15px; }
+.card-title { margin: 0; font-size: 17px; line-height: 1.3; }
 .card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .card-stock { font-size: 12px; color: var(--muted); }
 .card-stock.stock-zero { color: var(--danger); font-weight: 600; }
-.card-weight-guide { border: 1px solid #dbeafe; background: #f8fbff; border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.card-weight-guide { border: 1px solid #dbeafe; background: #f8fbff; border-radius: 7px; font-size: 12px; overflow: hidden; }
+.card-weight-guide summary { min-height: 34px; padding: 6px 8px; display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; color: #1e3a8a; }
+.card-weight-guide summary::-webkit-details-marker { display: none; }
+.card-weight-summary { flex: 1; min-width: 0; line-height: 1.3; }
+.card-weight-summary .km { color: #64748b; font-weight: 500; }
+.card-weight-source { background: #dbeafe; color: #1d4ed8; border-radius: 999px; padding: 1px 6px; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.card-weight-open { color: #64748b; font-size: 10px; white-space: nowrap; }
+.card-weight-open::after { content: " ▾"; }
+.card-weight-guide[open] .card-weight-open::after { content: " ▴"; }
 .card-weight-fallback { border-color: var(--border); background: #fafafa; }
-.card-weight-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: #1e3a8a; font-weight: 700; }
-.card-weight-fallback .card-weight-head { color: var(--muted); }
-.card-weight-source { background: #dbeafe; color: #1d4ed8; border-radius: 999px; padding: 2px 7px; font-size: 10px; white-space: nowrap; }
+.card-weight-fallback summary { color: #4b5563; }
 .card-weight-fallback .card-weight-source { background: #e5e7eb; color: #4b5563; }
-.card-weight-sizes { display: flex; flex-wrap: wrap; gap: 4px; }
-.card-weight-sizes span { background: #fff; border: 1px solid #dbeafe; border-radius: 6px; padding: 2px 6px; white-space: nowrap; }
-.card-weight-fallback .card-weight-sizes span { border-color: var(--border); }
-.card-weight-fit { color: #047857; font-weight: 600; }
-.card-actions { display: flex; gap: 8px; margin-top: 6px; }
-.card-actions .btn { flex: 1; }
+.card-weight-sizes { border-top: 1px solid #dbeafe; padding: 7px 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.card-weight-sizes span { background: #fff; border: 1px solid #dbeafe; border-radius: 5px; padding: 2px 5px; white-space: nowrap; }
+.card-weight-fallback .card-weight-sizes, .card-weight-fallback .card-weight-sizes span { border-color: var(--border); }
+.card-footer { margin-top: auto; padding-top: 10px; border-top: 1px solid #eef0f3; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.card-footer .card-stock { margin-right: auto; }
+.card-footer .btn-edit { min-width: 88px; min-height: 38px; }
+.card-menu { position: relative; }
+.card-menu > summary { width: 40px; min-height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; list-style: none; color: var(--muted); font-weight: 800; letter-spacing: 1px; background: #fff; }
+.card-menu > summary::-webkit-details-marker { display: none; }
+.card-menu[open] > summary { border-color: #93c5fd; color: var(--primary); }
+.card-menu-pop { position: absolute; right: 0; bottom: 44px; z-index: 5; min-width: 150px; padding: 5px; border: 1px solid var(--border); border-radius: 9px; background: #fff; box-shadow: 0 10px 28px rgba(15,23,42,.16); }
+.card-menu-pop button { width: 100%; border: 0; background: transparent; color: var(--text); border-radius: 6px; padding: 8px 10px; text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
+.card-menu-pop button:hover { background: #f3f4f6; }
+.card-menu-pop .btn-delete { color: var(--danger); }
 
 .badge {
   display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 600;
@@ -531,7 +547,9 @@ input[type=text], input[type=number], textarea {
 .cy-side { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
 
 /* ---------- 📏 sizes in stock (from Vrich) ---------- */
-.size-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px 0; }
+.size-stock-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.size-row { display: flex; flex: 1; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.size-total { flex: 0 0 auto; padding-left: 8px; border-left: 1px solid var(--border); font-size: 12px; font-weight: 700; white-space: nowrap; color: var(--text); }
 .size-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 6px; border: 1px solid transparent; }
 .size-chip b { font-size: 10px; font-weight: 700; opacity: .8; }
 .size-in { background: #dcfce7; color: #14532d; border-color: #86efac; }
@@ -539,7 +557,7 @@ input[type=text], input[type=number], textarea {
 .size-want.size-in { background: #16a34a; color: #fff; border-color: #16a34a; }
 .size-want.size-out { border-color: #fca5a5; }
 .size-none { font-size: 12px; color: #9ca3af; }
-.size-colours { padding: 2px 12px 0; font-size: 12px; }
+.size-colours { font-size: 12px; }
 .size-colours summary { color: var(--muted); cursor: pointer; }
 .size-colours div { padding: 2px 0; }
 .size-colour { font-weight: 700; }
