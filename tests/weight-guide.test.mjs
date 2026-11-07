@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { parseGuide, fitRange, WEIGHT_BANDS, rangeFitsBand } from "../js/weight-guide.js";
+import { parseGuide, structuredGuide, fitRange, WEIGHT_BANDS, rangeFitsBand } from "../js/weight-guide.js";
 
 const guide = parseGuide(`
 អាវលើខ្លួន
@@ -38,5 +38,9 @@ assert.deepEqual(WEIGHT_BANDS.filter(b => rangeFitsBand(mRange, b)).map(b => b.l
 const noGuess = parseGuide("Soft cotton shirt\naround sixty kilos\nbeautiful black");
 assert.equal(noGuess.weights.size, 0);
 assert.equal(noGuess.madeSizes.size, 0);
+
+const live = structuredGuide({ sizes: ["M", "L", "XXL"], weights: { M: "50-60", L: "60kg–70kg", XXL: "75—85" } });
+assert.deepEqual([...live.madeSizes], ["M", "L", "2XL"]);
+assert.deepEqual(live.weights.get("2XL"), { min: 75, max: 85 });
 
 console.log("weight-guide tests passed");

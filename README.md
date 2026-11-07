@@ -32,6 +32,7 @@ responsibility so one part can change without risking another:
 | `tools/copy-stock-bookmarklet.src.js` | The staff Copy Stock bookmarklet (phone relay + sizes snapshot) — build with `node tools/build-bookmarklet.js` |
 | `js/dashboard-tab.js` | 📊 Dashboard tab: pull out sold-out samples, broken size runs, what to put on live, stock by size, best sellers, runs out soon, live effect |
 | `js/weight-guide.js` | Parses product-description size/weight guides for dashboard gaps, weight bands and live fit ranges |
+| `js/live-guides.js` | Reads Live Log's compact structured size/weight guide snapshot (one document, description fallback) |
 | `js/dash-history.js` | Reads the daily stock history (`kv/vhm_sizes_day:<date>`) and live sessions (`kv/live_session:*`) once per open, kept on the device |
 | `js/cycle-tab.js` | 📍 Scan tab: the sample cycle (Sample ⇄ Live Room, Stock), shelf locations, labels — replaced the old Live, Locations and Cycle tabs |
 
@@ -128,6 +129,7 @@ screens follow that data (see `LOCATION_FIELDS` in `js/constants.js`); nothing w
   keep it that way in any new write, or other devices won't see the change
   until the weekly full read.
 - **📍 Scan tab:** no reads of its own. 1 write per shelf save, 2 per cycle move.
+- **📊 Weight guides:** 1 `vhm-catalog` read when the Dashboard first opens. Live Log's structured guide wins; the product description remains the offline/older-product fallback.
 
 ## 🔌 Connection to VHM Scan Verify (the source)
 
@@ -200,6 +202,10 @@ before, and it also builds a compact snapshot of today's sale:
 - Old pants whose waist is in the code (`JC29`, `AA32`, description "ខោ") are read as
   product `JC` / `AA`, size 29 / 32. A VHM product saved as `JC` gets all of them;
   one saved as `JC29` gets only that one.
+- In the Dashboard's “In Vrich, not in VHM Inventory” staff list, those waist codes
+  are grouped into one main-code task (`AA28`, `AA29`, `AA31` → `AA`). The chip keeps
+  the combined piece total and size summary. Real numbered codes such as `E100` are
+  not shortened.
 
 It is saved to the vhm-catalog project (`kv/vhm_sizes` + the tiny `kv/vhm_sizes_meta`)
 only when it is today's date, the latest round, the full list is loaded, the stock
@@ -245,5 +251,3 @@ Tap the 👕 or 📦 chip on a product card and type. There is no Save button:
   (editing a product doesn't drop it). **Restore** brings it back on every product.
 - The PIN is stored only as a hash in `settings/admin`. It stops accidental deletes by staff;
   it isn't a security wall.
-
- 

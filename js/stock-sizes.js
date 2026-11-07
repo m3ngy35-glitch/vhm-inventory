@@ -104,6 +104,15 @@ export function stockRows(product) {
 
 // the whole current snapshot (every Vrich code, matched to VHM or not) — for the 📊 Dashboard
 export const sizesSnapshot = () => snap;
+
+// Main product code for dashboard grouping. The bookmarklet records `base` only
+// for legacy pants whose Vrich code contains the waist (AA28, AA29 ...). Do not
+// strip numbers by pattern here: codes such as E100 are real product codes.
+export function stockMainCode(code, rows) {
+  const bases = [...new Set((rows || []).map(r => norm(r.base)).filter(Boolean))];
+  return bases.length === 1 ? bases[0] : norm(code);
+}
+
 // sort rank for a size: S M L … then waist 28 29 30 …
 export const sizeRank = s => { const i = SIZE_ORDER.indexOf(s); return i >= 0 ? i : /^\d+$/.test(s) ? 100 + +s : 500; };
 

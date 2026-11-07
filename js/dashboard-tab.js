@@ -22,12 +22,13 @@
 // Codes with no match are listed at the bottom, never counted as 0 stock.
 // ============================================================================
 
-import { sizesSnapshot, onSizes, stockAgo, sizesError, checkSizes, sizeRank } from "./stock-sizes.js";
+import { sizesSnapshot, onSizes, stockAgo, sizesError, checkSizes, sizeRank, stockMainCode } from "./stock-sizes.js";
 import { checkLive, liveLast, onLive, liveOutOf, liveError } from "./live-feed.js";
 import { loadDays, loadLives, DAYS } from "./dash-history.js";
 import { LOCATION_FIELDS } from "./constants.js";
 import { escapeHtml, toast } from "./ui-components.js";
-import { parseGuide, fitRange, normalizeGuideSize, WEIGHT_BANDS, rangeFitsBand } from "./weight-guide.js";
+import { parseGuide, structuredGuide, fitRange, normalizeGuideSize, WEIGHT_BANDS, rangeFitsBand } from "./weight-guide.js";
+import { startLiveGuides, checkLiveGuides, liveGuideFor, liveGuidesError, onLiveGuides } from "./live-guides.js";
 
 // ---- settings (owner decisions — see the handoff) ----
 // Is the sample piece counted in Vrich stock? true → "0 left" means even the sample
@@ -97,28 +98,32 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
   }
   function refresh() {
     toast("Checking… · កំពុងពិនិត្យ");
-    Promise.all([checkSizes(), checkLive(), loadHistory()]).then(() => toast(sizesError() || liveError() || S.histErr || S.livesErr || "Up to date · ថ្មីហើយ"));
+    Promise.all([checkSizes(), checkLive(), checkLiveGuides(), loadHistory()]).then(() => toast(sizesError() || liveError() || liveGuidesError() || S.histErr || S.livesErr || "Up to date · ថ្មីហើយ"));
   }
 
   // ---------------- the numbers ----------------
   function compute() {
     const snap = sizesSnapshot();
     if (!snap) return null;
-    // items = one per VHM product (old pants AA28/AA29… merged), or per unmatched Vrich code
+    // items = one per VHM product, or one per unmatched main Vrich code. Legacy
+    // pants AA28/AA29… carry base=AA in the snapshot and must be one staff task.
     const items = new Map();
     for (const [code, rows] of snap.byCode) {
-      const base = rows.find(r => r.base)?.base || "";
-      const p = productFor(code, base), key = p ? "p:" + p.id : "c:" + code;
+      const main = stockMainCode(code, rows);
+      const base = main !== norm(code) ? main : "";
+      const p = productFor(code, base), key = p ? "p:" + p.id : "c:" + main;
       let it = items.get(key);
-      if (!it) items.set(key, it = { key, product: p, code: p ? p.master_code : code, vcodes: [], rows: [], total: 0 });
-      it.vcodes.push(code);
+      if (!it) items.set(key, it = { key, product: p, code: p ? p.master_code : main, vcodes: [], rows: [], total: 0 });
+      if (!it.vcodes.includes(code)) it.vcodes.push(code);
       rows.forEach(r => { it.rows.push({ ...r, code }); it.total += r.qty; });
     }
     for (const it of items.values()) {
       const t = new Map();
       it.rows.forEach(r => t.set(r.size || "—", (t.get(r.size || "—") || 0) + r.qty));
       it.sizes = [...t.entries()].sort((a, b) => sizeRank(a[0]) - sizeRank(b[0]));
-      it.guide = parseGuide(it.product?.description || "");
+      // Live Log is the editable source of truth. Older products and an offline
+      // device still work through the description parser fallback.
+      it.guide = structuredGuide(liveGuideFor(it.code)) || parseGuide(it.product?.description || "");
       it.fit = fitRange(it.rows, it.guide);
     }
     const all = [...items.values()];
@@ -466,9 +471,13 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
   function secUnmatched(D) {
     if (!D.unmatchedVrich.length && !D.notInVrich.length) return "";
     const list = arr => arr.slice(0, 300).map(x => `<span class="dash-um">${escapeHtml(x)}</span>`).join("") + (arr.length > 300 ? ` <span class="muted">+${arr.length - 300}</span>` : "");
+    const unmatchedLabel = i => {
+      const sizes = i.sizes.map(([s]) => s).filter(s => s && s !== "—");
+      return `${i.code} · ${i.total}${sizes.length ? ` · ${sizes.join("/")}` : ""}`;
+    };
     return `<section class="dash-sec" id="dash-s8"><h3>No Vrich match <span class="km">· មិនត្រូវគ្នា</span></h3>
       <p class="muted dash-sub">Not counted anywhere above (never treated as 0 stock).</p>
-      ${D.unmatchedVrich.length ? `<details class="dash-done"><summary>In Vrich, not in VHM Inventory (${D.unmatchedVrich.length}) · មិនមានក្នុង VHM</summary><div class="dash-um-list">${list(D.unmatchedVrich.map(i => `${i.code} · ${i.total}`))}</div></details>` : ""}
+      ${D.unmatchedVrich.length ? `<details class="dash-done"><summary>In Vrich, not in VHM Inventory (${D.unmatchedVrich.length} main codes) · មិនមានក្នុង VHM</summary><p class="muted dash-sub">One staff task per main code; waist-size codes are combined. Format: main code · pieces · sizes.</p><div class="dash-um-list">${list(D.unmatchedVrich.map(unmatchedLabel))}</div></details>` : ""}
       ${D.notInVrich.length ? `<details class="dash-done"><summary>In VHM Inventory, not on today's Vrich sale (${D.notInVrich.length}) · មិនមានក្នុង Vrich</summary><div class="dash-um-list">${list(D.notInVrich.map(p => p.master_code))}</div></details>` : ""}
     </section>`;
   }
@@ -508,13 +517,15 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
   const unsub = onProducts(list => { useProducts(list); tidyPulled(); });
   const stopSizes = onSizes(() => { tidyPulled(); schedule(); });
   const stopLive = onLive(schedule);
+  const stopGuides = onLiveGuides(schedule);
   checkLive();
+  startLiveGuides();
   loadHistory();
   const ticker = setInterval(() => { if (!container.closest("[hidden]")) schedule(); }, 60000);
   tidyPulled();
 
   return {
     show() { if (S.dirty) render(); },
-    stop() { unsub(); stopSizes(); stopLive(); clearInterval(ticker); },
+    stop() { unsub(); stopSizes(); stopLive(); stopGuides(); clearInterval(ticker); },
   };
 }

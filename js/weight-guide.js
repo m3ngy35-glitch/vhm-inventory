@@ -58,6 +58,26 @@ export function parseGuide(description) {
   return { weights, madeSizes };
 }
 
+function parseRange(value) {
+  const m = /(\d{2,3})\s*(?:kg)?\s*[-–—~]\s*(\d{2,3})/i.exec(String(value || ""));
+  if (!m) return null;
+  const min = Number(m[1]), max = Number(m[2]);
+  return min > 0 && max > min && max <= 300 ? { min, max } : null;
+}
+
+// Convert Live Log's compact structured entry ({sizes, weights}) into the same
+// shape parseGuide() returns, so the dashboard can prefer it without branching.
+export function structuredGuide(entry) {
+  if (!entry || !Array.isArray(entry.sizes)) return null;
+  const madeSizes = new Set(entry.sizes.map(normalizeGuideSize).filter(Boolean));
+  const weights = new Map();
+  for (const [rawSize, value] of Object.entries(entry.weights || {})) {
+    const range = parseRange(value);
+    if (range) weights.set(normalizeGuideSize(rawSize), range);
+  }
+  return madeSizes.size || weights.size ? { madeSizes, weights } : null;
+}
+
 export function fitRange(rows, guide) {
   const ranges = [];
   for (const row of rows || []) {
