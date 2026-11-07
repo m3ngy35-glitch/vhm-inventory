@@ -173,7 +173,9 @@ A scanner double beep (the same code within 4 s) is ignored. **Undo** removes th
   each piece has been there (longest first). 🎥×N = times the code has gone live. Tap a code
   for its full history.
 - **📜 Day log:** every move on a chosen day, with totals and a CSV download.
-- The product card also shows a chip with the current stage and time (e.g. 🎥 Live Room · 2h 5m).
+- Product cards no longer show the legacy Inventory **Live Room** stage. When a code was actually
+  shown in the latest completed VHM Live Selling Log, the card shows a blue **🎥 Live Log** chip
+  with the time recorded by Live Log. Sample and replacement-stock stages remain unchanged.
 
 Data: `cycle_log` gets one doc per move (from, to, times live, reason, time in the previous
 stage, sample container location, scanned code, size/colour if a POS code was scanned, who, when). The product gets
@@ -193,11 +195,22 @@ then a small action footer. Long descriptions and the inline variant table no lo
 on the card face; tap the code or **View details** for the full information, and use **Edit**
 for variants. Delete and secondary actions live in the three-dot menu.
 
+New product photos are optimized on the staff device before upload. JPG, PNG and WebP files
+are resized to at most 1600 px on the longest side and compressed toward 1.5 MB; files already
+within both limits are left unchanged. Firebase Storage rejects new product images at 2 MB as
+a second safety limit. Existing larger photos continue to display normally.
+
 The product card shows one compact **⚖️ Fits in-stock sizes 45–70 kg** line. It uses
 the structured guide from **VHM Live Selling Log** and labels the source. Tap **sizes** to
 expand the size-by-size ranges; they stay folded by default so the guide does not compete
 with the product code, name, tags and stock. If Live Log has no structured guide for that
 code, the older product-description parser remains as a clearly labelled fallback.
+VHM Live Selling Log keeps guide edits queued locally and publishes them together with the
+shown codes when staff press **End Live**. That single atomic batch updates the live history,
+latest live and compact weight-guide snapshot. When staff return to Inventory, one read of the
+latest-live record updates both the blue Live Log chip and changed weight recommendations.
+Only size/weight guides that actually changed are included. Saving the same recommendation
+again does nothing, and an End Live with no guide changes does not rewrite the guide snapshot.
 
 **Search by size:** a search word that is a size means "has that size in stock":
 `M`, `2XL`, `32`, `polo m`, `l xl` (any of them). The Size filter works the same way.

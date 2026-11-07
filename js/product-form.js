@@ -249,6 +249,9 @@ export function openProductForm({ product, categories, tags, onSaved }) {
       // create a second, duplicate document instead of continuing to
       // update the first one.
       state.id = productId;
+      // A large phone photo may still be resizing when Save is tapped.
+      // Wait for that local work so every selected photo is included.
+      await uploader.waitUntilReady();
       const { images, failedNames } = await uploader.uploadPendingImages(productId);
       payload.images = images;
       await saveProduct(payload);

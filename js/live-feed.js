@@ -4,8 +4,8 @@
 //
 // Live Log (live.html, vhm-catalog project) has ⏺ Start live / ⏹ End live.
 // While live, the codes sent to OBS / copied are kept on that computer; End live
-// saves ONE record: kv/live_last (+ kv/live_session:<id> as history), shaped
-//   { id, startedAt, endedAt, by, codes: [{ code, first, last, n }] }
+// atomically publishes kv/live_last (+ kv/live_session:<id> as history), shaped
+//   { id, startedAt, endedAt, by, codes: [...], guideChanges: { CODE: guide } }
 // This file reads kv/live_last with the same public read access the phone relay
 // uses. Cost: 1 read when the Scan tab opens and every 5 minutes while it is on
 // screen; the record is kept on the device.

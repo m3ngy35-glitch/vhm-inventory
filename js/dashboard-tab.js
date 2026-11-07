@@ -28,7 +28,7 @@ import { loadDays, loadLives, DAYS } from "./dash-history.js";
 import { LOCATION_FIELDS } from "./constants.js";
 import { escapeHtml, toast } from "./ui-components.js";
 import { parseGuide, structuredGuide, fitRange, normalizeGuideSize, WEIGHT_BANDS, rangeFitsBand } from "./weight-guide.js";
-import { startLiveGuides, checkLiveGuides, liveGuideFor, liveGuidesError, onLiveGuides } from "./live-guides.js";
+import { liveGuideFor, liveGuidesError, onLiveGuides } from "./live-guides.js";
 
 // ---- settings (owner decisions — see the handoff) ----
 // Is the sample piece counted in Vrich stock? true → "0 left" means even the sample
@@ -98,7 +98,7 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
   }
   function refresh() {
     toast("Checking… · កំពុងពិនិត្យ");
-    Promise.all([checkSizes(), checkLive(), checkLiveGuides(), loadHistory()]).then(() => toast(sizesError() || liveError() || liveGuidesError() || S.histErr || S.livesErr || "Up to date · ថ្មីហើយ"));
+    Promise.all([checkSizes(), checkLive(), loadHistory()]).then(() => toast(sizesError() || liveError() || liveGuidesError() || S.histErr || S.livesErr || "Up to date · ថ្មីហើយ"));
   }
 
   // ---------------- the numbers ----------------
@@ -554,7 +554,6 @@ export function initDashboardTab(container, { getProducts, onProducts, getCatego
   const stopLive = onLive(schedule);
   const stopGuides = onLiveGuides(schedule);
   checkLive();
-  startLiveGuides();
   loadHistory();
   const ticker = setInterval(() => { if (!container.closest("[hidden]")) schedule(); }, 60000);
   tidyPulled();

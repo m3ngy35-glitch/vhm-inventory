@@ -11,10 +11,11 @@ import { openProductForm } from "./product-form.js";
 import { openProductDetail } from "./product-detail.js";
 import { openCategoryTagManager } from "./category-tag-manager.js";
 import { watchAuth, login, logout } from "./auth.js";
-import { initCycleTab, stageChip } from "./cycle-tab.js";
+import { initCycleTab, stageChip, ago } from "./cycle-tab.js";
 import { initDashboardTab } from "./dashboard-tab.js";
 import { startSizes, onSizes, sizesLoaded, isSizeTerm, stockRows, sizeTotals, hasSizeInStock, stockAgo, sizesError, checkSizes } from "./stock-sizes.js";
-import { startLiveGuides, onLiveGuides, liveGuideFor } from "./live-guides.js";
+import { startLiveGuides, applyLiveGuideChanges, onLiveGuides, liveGuideFor } from "./live-guides.js";
+import { checkLive, onLive, liveLast, shownEntry } from "./live-feed.js";
 import { structuredGuide, parseGuide, fitRange } from "./weight-guide.js";
 
 const state = {
@@ -140,6 +141,21 @@ function renderWeightRecommendation(p) {
   </details>`;
 }
 
+// The old red "Live Room" chip came from Inventory's manual cycle stage and
+// could stay there long after the real live ended. VHM Live Selling Log is now
+// the source of truth: if this code was actually shown in its latest completed
+// live, show the real time recorded for the code. A legacy LIVE stage with no
+// matching Live Log entry is deliberately hidden rather than presented as fact.
+function renderCardStage(p) {
+  const entry = shownEntry(p);
+  const live = liveLast();
+  if (entry && live) {
+    const shownAt = entry.last || entry.first || live.endedAt || live.startedAt;
+    return `<span class="cy-chip card-live-log" title="Shown in VHM Live Selling Log">🎥 Live Log${shownAt ? ` · ${ago(shownAt)}` : ""}</span>`;
+  }
+  return p.cycle_stage === "LIVE" ? "" : stageChip(p.cycle_stage, p.cycle_at);
+}
+
 function renderProductCard(p) {
   const category = state.categoriesById[p.category_id];
   const tags = (p.tag_ids || []).map(id => state.tagsById[id]).filter(Boolean);
@@ -169,7 +185,7 @@ function renderProductCard(p) {
           <!-- green chip = sample, yellow chip = stock location (the colours staff know) -->
           ${locInput(p, "sample")}
           ${locInput(p, "stock")}
-          ${stageChip(p.cycle_stage, p.cycle_at)}
+          ${renderCardStage(p)}
         </div>
         ${renderSizeChips(p)}
         ${renderWeightRecommendation(p)}
@@ -547,6 +563,9 @@ function wireNav() {
 
 let unsubscribeProducts = null;
 let unsubscribeLiveGuides = null;
+let unsubscribeLiveFeed = null;
+let liveFocusHandler = null;
+let lastLiveCheckAt = 0;
 
 async function startApp() {
   document.getElementById("login-screen").hidden = true;
@@ -563,6 +582,25 @@ async function startApp() {
     unsubscribeLiveGuides?.();
     unsubscribeLiveGuides = onLiveGuides(() => { if (state.searchIndex.length) renderGrid(); });
     startLiveGuides();
+    unsubscribeLiveFeed?.();
+    unsubscribeLiveFeed = onLive(() => {
+      const live = liveLast();
+      if (live?.guideChanges) applyLiveGuideChanges(live.guideChanges, live.id, live.endedAt);
+      if (state.searchIndex.length) renderGrid();
+    });
+    if (liveFocusHandler) window.removeEventListener("focus", liveFocusHandler);
+    liveFocusHandler = () => {
+      // Returning from the VHM Live Selling Log tab should update the cards,
+      // but throttle focus events so tab switching cannot create excess reads.
+      if (Date.now() - lastLiveCheckAt < 60 * 1000) return;
+      lastLiveCheckAt = Date.now();
+      // live_last carries both the shown codes and the guide changes, so this
+      // one read refreshes both without a second request.
+      checkLive();
+    };
+    window.addEventListener("focus", liveFocusHandler);
+    lastLiveCheckAt = Date.now();
+    checkLive();
     unsubscribeProducts = subscribeProducts(products => {
       state.allProducts = products;
       state.products = products.filter(p => !p.deleted);
@@ -580,6 +618,10 @@ function showLogin() {
   unsubscribeProducts?.();
   unsubscribeLiveGuides?.();
   unsubscribeLiveGuides = null;
+  unsubscribeLiveFeed?.();
+  unsubscribeLiveFeed = null;
+  if (liveFocusHandler) window.removeEventListener("focus", liveFocusHandler);
+  liveFocusHandler = null;
   // stop the 📍 Scan tab too, so it is set up fresh on the next sign-in
   unsubscribeCycleTab?.();
   unsubscribeCycleTab = null;
